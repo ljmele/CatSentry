@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cat Sentry Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Courier New', monospace; background-color: #1a1a1a; color: #00ff00; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { border-bottom: 2px solid #00ff00; padding-bottom: 10px; }
+        button { 
+            background-color: #00ff00; color: #000; border: none; padding: 15px 30px; 
+            font-size: 18px; font-weight: bold; cursor: pointer; margin-bottom: 20px;
+        }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        .status { margin-bottom: 20px; font-size: 14px; color: #888; }
+        #log { 
+            background: #000; border: 1px solid #333; height: 150px; 
+            overflow-y: scroll; padding: 10px; margin-bottom: 20px; font-size: 12px;
+        }
+        .card { background: #222; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>CAT SENTRY v1.0</h1>
+    <div class="status" id="statusLine">System: DISCONNECTED</div>
+    
+    <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
+
+    <div class="card">
+        <h3>Activity Statistics</h3>
+        <canvas id="activityChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Event Log</h3>
+        <div id="log">Waiting for connection...</div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    // These must match your Arduino UUIDs exactly
+    const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
+    const charUUID    = "19b10001-e8f2-537e-4f6c-d104768a1214";
+
+    let device, server, service, characteristic;
+    let entryCount = 0;
+    let exitCount = 0;
+
+    // Initialize Chart
+    const ctx = document.getElementById('activityChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Entries', 'Exits'],
+            datasets: [{
+                label: 'Today\'s Activity',
+                data: [0, 0],
+                backgroundColor: ['#36a2eb', '#ff6384'],
+                borderColor: '#fff',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: { y: { beginAtZero: true, grid: { color: '#333' } }, x: { grid: { color: '#333' } } },
+            plugins: { legend: { labels: { color: '#fff' } } }
+        }
+    });
+
+    async function connectToCat() {
+        try {
+            updateLog("Scanning for CatSentry...");
+            
+            // 1. Request Device
+            device = await navigator.bluetooth.requestDevice({
+                filters: [{ name: 'CatSentry' }],
+                optionalServices: [serviceUUID]
+            });
+
+            device.addEventListener('gattserverdisconnected', onDisconnected);
+
+            // 2. Connect to Server
+            updateLog("Connecting to GATT Server...");
+            server = await device.gatt.connect();
+
+            // 3. Get Service
+            service = await server.getPrimaryService(serviceUUID);
+
+            // 4. Get Characteristic
+            characteristic = await service.getCharacteristic(charUUID);
+
+            // 5. Start Notifications
+            await characteristic.startNotifications();
+            characteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+            document.getElementById('connectBtn').innerText = "CONNECTED";
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('statusLine').innerText = "System: ONLINE | Battery: OK";
+            updateLog("Link established! Waiting for cats...");
+
+        } catch (error) {
+            console.log(error);
+            updateLog("Error: " + error);
+        }
+    }
+
+    function handleNotifications(event) {
+        const value = event.target.value;
+        const decoder = new TextDecoder('utf-8');
+        const message = decoder.decode(value).trim(); // "ENTRY" or "EXIT"
+
+        const timestamp = new Date().toLocaleTimeString();
+        updateLog(`[${timestamp}] EVENT TRIGGERED: ${message}`);
+
+        // Update Logic
+        if (message === "ENTRY") {
+            entryCount++;
+        } else if (message === "EXIT") {
+            exitCount++;
+        }
+
+        // Update Chart
+        chart.data.datasets[0].data = [entryCount, exitCount];
+        chart.update();
+    }
+
+    function onDisconnected(event) {
+        updateLog("Device Disconnected.");
+        document.getElementById('connectBtn').innerText = "CONNECT TO DEVICE";
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('statusLine').innerText = "System: DISCONNECTED";
+    }
+
+    function updateLog(text) {
+        const logDiv = document.getElementById('log');
+        logDiv.innerHTML = `<div>> ${text}</div>` + logDiv.innerHTML;
+    }
+</script>
+
+</body>
+</html>
