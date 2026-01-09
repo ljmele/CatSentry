@@ -91,6 +91,16 @@
             // 3. Get Service
             service = await server.getPrimaryService(serviceUUID);
 
+	   // 1. Get Time Characteristic
+	   const timeChar = await service.getCharacteristic("19b10002-e8f2-537e-4f6c-d104768a1214");
+
+	   // 2. Send Current Time (Unix Epoch in seconds)
+           const nowSeconds = Math.floor(Date.now() / 1000);
+	   // We need to send a Uint32 (4 bytes)
+	   const timeBuffer = new Uint32Array([nowSeconds]);
+	   await timeChar.writeValue(timeBuffer);
+	   updateLog("Synced time with Cat Door!");
+
             // 4. Get Characteristic
             characteristic = await service.getCharacteristic(charUUID);
 
