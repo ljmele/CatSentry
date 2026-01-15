@@ -99,9 +99,13 @@
 
     // --- PERSISTENCE & UTILS ---
     function addEvent(timestamp, type) {
-        // Dedup: Check if we already have this exact timestamp + type
-        // Note: For large datasets, a Set or Map is faster, but for <10k items array is fine.
-        const exists = eventHistory.some(e => e.timestamp === timestamp && e.type === type);
+        // Dedup: Check if we already have this event.
+        // We use a 5-second "fuzzy match" because the Live event timestamp (phone time) 
+        // and the Arduino History timestamp (device time) might differ slightly.
+        const exists = eventHistory.some(e => {
+            return e.type === type && Math.abs(e.timestamp - timestamp) < 5000;
+        });
+
         if (exists) return false;
 
         eventHistory.push({ timestamp, type });
