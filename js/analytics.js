@@ -1,5 +1,9 @@
 // analytics.js
 
+let currentPeriod = 'day'; // 'day', 'week', 'month'
+let cachedDailyCounts = {};
+let cachedDailyDurations = {};
+
 /**
  * Updates all detailed analytics charts based on the event history.
  * @param {Array} history - Array of {timestamp, type} objects.
@@ -7,58 +11,108 @@
 function updateAnalytics(history) {
     if (!history || history.length === 0) return;
 
-    // Sort valid history
     const sorted = [...history].sort((a, b) => a.timestamp - b.timestamp);
 
-    // Process Data
+    // 1. Process base data (Daily resolution)
     const { dailyCounts, dailyDurations, hourlyActivity } = processData(sorted);
+    
+    // Cache for aggregator
+    cachedDailyCounts = dailyCounts;
+    cachedDailyDurations = dailyDurations;
 
-    // Update Plots
-    renderVisitsChart(dailyCounts);
-    renderDurationChart(dailyDurations);
+    // 2. Render Activity Radar (always same)
     renderHourlyChart(hourlyActivity);
+
+    // 3. Render Aggregated Charts
+    refreshTimeCharts();
+}
+
+/**
+ * Switch period and refresh charts
+ */
+function setChartPeriod(period) {
+    currentPeriod = period;
+    
+    // Update active button state
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        if(btn.id === `btn-${period}`) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+
+    refreshTimeCharts();
+}
+
+function refreshTimeCharts() {
+    const aggCounts = aggregateData(cachedDailyCounts, currentPeriod);
+    const aggDuration = aggregateData(cachedDailyDurations, currentPeriod);
+
+    renderVisitsChart(aggCounts, currentPeriod);
+    renderDurationChart(aggDuration, currentPeriod);
+}
+
+/**
+ * Aggregates daily data into weeks or months
+ */
+function aggregateData(dailyData, period) {
+    if (period === 'day') return dailyData;
+
+    const aggregated = {};
+    
+    Object.keys(dailyData).forEach(dateStr => {
+        // dateStr is local date string. Ideally we parse it back to a Date object.
+        const date = new Date(dateStr);
+        let key = '';
+
+        if (period === 'week') {
+            // Get week number
+            const startOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDays = (date - startOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDays + startOfYear.getDay() + 1) / 7);
+            key = `W${weekNum} ${date.getFullYear()}`;
+        } else if (period === 'month') {
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            key = `${months[date.getMonth()]} ${date.getFullYear()}`;
+        }
+
+        aggregated[key] = (aggregated[key] || 0) + dailyData[dateStr];
+    });
+
+    return aggregated;
 }
 
 /**
  * Process raw events into chart-friendly datasets
  */
 function processData(events) {
-    const dailyCounts = {};     // 'YYYY-MM-DD': count
-    const dailyDurations = {};  // 'YYYY-MM-DD': minutes
+    const dailyCounts = {};     
+    const dailyDurations = {};  
     const hourlyActivity = new Array(24).fill(0);
 
     let lastExitTime = null;
 
     events.forEach(event => {
         const date = new Date(event.timestamp);
-        const dateKey = date.toLocaleDateString(); // Local date string key
+        const dateKey = date.toLocaleDateString(); 
         const hour = date.getHours();
 
-        // 1. Hourly Activity (Count both Entry and Exit to see "busyness")
+        // 1. Hourly Activity
         hourlyActivity[hour]++;
 
-        // 2. Daily Counts (Only count Exits)
+        // 2. Daily Counts (Exits)
         if (event.type === 2) { // EXIT
             dailyCounts[dateKey] = (dailyCounts[dateKey] || 0) + 1;
             lastExitTime = event.timestamp;
-            
-            // Initialize duration for this day (if not existing) to 0 so the bar shows up
             if (!dailyDurations[dateKey]) dailyDurations[dateKey] = 0;
         } else if (event.type === 1) { // ENTRY
             // 3. Time Spent Outside
             if (lastExitTime !== null) {
-                // We have a pending exit
                 const durationMs = event.timestamp - lastExitTime;
-                
-                // Sanity check: Ignore trips > 24 hours or < 0 (glitches)
                 if (durationMs > 0 && durationMs < 24 * 60 * 60 * 1000) {
                     const minutes = durationMs / 1000 / 60;
-                    
-                    // Attribute duration to the day of EXIT (usually same day)
                     const exitDate = new Date(lastExitTime).toLocaleDateString();
                     dailyDurations[exitDate] = (dailyDurations[exitDate] || 0) + minutes;
                 }
-                lastExitTime = null; // Pair complete
+                lastExitTime = null; 
             }
         }
     });
@@ -66,54 +120,62 @@ function processData(events) {
     return { dailyCounts, dailyDurations, hourlyActivity };
 }
 
-// --- Chart Instances (kept global to update/destroy) ---
+// --- Chart Instances ---
 let visitsChartInstance = null;
 let durationChartInstance = null;
 let hourlyChartInstance = null;
 
-function renderVisitsChart(dataObj) {
+function renderVisitsChart(dataObj, period) {
     const ctx = document.getElementById('visitsChart').getContext('2d');
     const labels = Object.keys(dataObj);
     const data = Object.values(dataObj);
+    
+    const labelText = period === 'day' ? 'Exits per Day' : `Exits per ${period.charAt(0).toUpperCase() + period.slice(1)}`;
 
     if (visitsChartInstance) visitsChartInstance.destroy();
 
     visitsChartInstance = new Chart(ctx, {
-        type: 'bar',
+        type: 'bar', // Bar is good for frequency
         data: {
             labels: labels,
             datasets: [{
-                label: 'Exits per Day',
+                label: labelText,
                 data: data,
                 backgroundColor: '#36a2eb',
-                borderColor: '#36a2eb',
                 borderRadius: 4
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: true, grid: { color: '#333' }, ticks: { stepSize: 1 } },
+                y: { beginAtZero: true, grid: { color: '#333' } },
                 x: { grid: { color: '#333' } }
             },
-            plugins: { title: { display: true, text: 'Frequency of Outings', color: '#fff' } }
+            plugins: { 
+                legend: { display: false },
+                title: { display: true, text: 'Frequency of Outings', color: '#fff' } 
+            }
         }
     });
 }
 
-function renderDurationChart(dataObj) {
+function renderDurationChart(dataObj, period) {
     const ctx = document.getElementById('durationChart').getContext('2d');
     const labels = Object.keys(dataObj);
-    const data = Object.values(dataObj).map(m => Math.round(m)); // Round to nearest minute
+    const data = Object.values(dataObj).map(m => Math.round(m)); 
+
+    const labelText = period === 'day' ? 'Minutes per Day' : `Minutes per ${period.charAt(0).toUpperCase() + period.slice(1)}`;
 
     if (durationChartInstance) durationChartInstance.destroy();
 
+    // Pie chart might be cool for monthly, but Line is best for trends over time
     durationChartInstance = new Chart(ctx, {
-        type: 'line', // Line chart to see trend easier
+        type: 'line', 
         data: {
             labels: labels,
             datasets: [{
-                label: 'Time Outside (Minutes)',
+                label: labelText,
                 data: data,
                 borderColor: '#ff6384',
                 backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -123,11 +185,15 @@ function renderDurationChart(dataObj) {
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             scales: {
                 y: { beginAtZero: true, grid: { color: '#333' } },
                 x: { grid: { color: '#333' } }
             },
-            plugins: { title: { display: true, text: 'Time Spent Outside', color: '#fff' } }
+            plugins: { 
+                legend: { display: false },
+                title: { display: true, text: 'Time Spent Outside', color: '#fff' } 
+            }
         }
     });
 }
@@ -143,7 +209,7 @@ function renderHourlyChart(dataArray) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Activity Intensity',
+                label: 'Activity',
                 data: dataArray,
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 borderColor: 'rgba(75, 192, 192, 1)',
@@ -153,16 +219,17 @@ function renderHourlyChart(dataArray) {
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             scales: {
                 r: {
                     angleLines: { color: '#333' },
                     grid: { color: '#333' },
-                    pointLabels: { color: '#888' },
-                    ticks: { backdropColor: 'transparent' }
+                    pointLabels: { color: '#888', font: { size: 10 } },
+                    ticks: { backdropColor: 'transparent', display: false }
                 }
             },
             plugins: { 
-                title: { display: true, text: 'Preferred "Cat Hours" (24h Clock)', color: '#fff' },
+                title: { display: true, text: 'Preferred Hours (24h)', color: '#fff' },
                 legend: { display: false }
             }
         }
