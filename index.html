@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Sentry Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/analytics.js"></script>
     <style>
         body { font-family: 'Courier New', monospace; background-color: #1a1a1a; color: #00ff00; padding: 20px; }
         .container { max-width: 800px; margin: 0 auto; }
@@ -37,6 +38,20 @@
     <div class="card">
         <h3>Activity Statistics</h3>
         <canvas id="activityChart"></canvas>
+    </div>
+
+    <!-- New Analytics Section -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="card">
+            <canvas id="visitsChart"></canvas>
+        </div>
+        <div class="card">
+            <canvas id="durationChart"></canvas>
+        </div>
+    </div>
+    
+    <div class="card">
+        <canvas id="hourlyChart" style="max-height: 400px;"></canvas>
     </div>
 
     <div class="card">
@@ -105,6 +120,11 @@
     function updateUI() {
         chart.data.datasets[0].data = [entryCount, exitCount];
         chart.update();
+
+        // Update Advanced Analytics
+        if (typeof updateAnalytics === 'function') {
+            updateAnalytics(eventHistory);
+        }
     }
 
     function downloadCSV() {
