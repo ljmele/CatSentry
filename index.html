@@ -28,7 +28,11 @@
     <h1>CAT SENTRY v1.0</h1>
     <div class="status" id="statusLine">System: DISCONNECTED</div>
     
-    <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
+        <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
+        <button onclick="clearData()" style="background-color: #ff6384; color: #fff;">CLEAR HISTORY</button>
+    </div>
 
     <div class="card">
         <h3>Activity Statistics</h3>
@@ -46,10 +50,14 @@
     // These must match your Arduino UUIDs exactly
     const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
     const charUUID    = "19b10001-e8f2-537e-4f6c-d104768a1214";
+    const historyUUID = "19b10003-e8f2-537e-4f6c-d104768a1214";
 
-    let device, server, service, characteristic;
-    let entryCount = 0;
-    let exitCount = 0;
+    let device, server, service, characteristic, historyChar;
+    
+    // Load from LocalStorage
+    let eventHistory = JSON.parse(localStorage.getItem('catSentryData')) || [];
+    let entryCount = eventHistory.filter(e => e.type === 1).length;
+    let exitCount = eventHistory.filter(e => e.type === 2).length;
 
     // Initialize Chart
     const ctx = document.getElementById('activityChart').getContext('2d');
@@ -58,8 +66,8 @@
         data: {
             labels: ['Entries', 'Exits'],
             datasets: [{
-                label: 'Today\'s Activity',
-                data: [0, 0],
+                label: 'Total Activity',
+                data: [entryCount, exitCount],
                 backgroundColor: ['#36a2eb', '#ff6384'],
                 borderColor: '#fff',
                 borderWidth: 1
@@ -71,6 +79,62 @@
             plugins: { legend: { labels: { color: '#fff' } } }
         }
     });
+
+    // --- PERSISTENCE & UTILS ---
+    function addEvent(timestamp, type) {
+        // Dedup: Check if we already have this exact timestamp + type
+        // Note: For large datasets, a Set or Map is faster, but for <10k items array is fine.
+        const exists = eventHistory.some(e => e.timestamp === timestamp && e.type === type);
+        if (exists) return false;
+
+        eventHistory.push({ timestamp, type });
+        if (type === 1) entryCount++;
+        if (type === 2) exitCount++;
+        
+        // Optimize: Don't sort/save/updateUI on every single bulk history item.
+        // We will call save/update manually after bulk ops.
+        return true;
+    }
+
+    function saveData() {
+        // Sort before saving to ensure order
+        eventHistory.sort((a, b) => a.timestamp - b.timestamp);
+        localStorage.setItem('catSentryData', JSON.stringify(eventHistory));
+    }
+
+    function updateUI() {
+        chart.data.datasets[0].data = [entryCount, exitCount];
+        chart.update();
+    }
+
+    function downloadCSV() {
+        let csv = "Timestamp,Date,Type\n";
+        // Ensure sorted for export
+        const sorted = [...eventHistory].sort((a, b) => a.timestamp - b.timestamp);
+        sorted.forEach(e => {
+            const dateStr = new Date(e.timestamp).toLocaleString();
+            const typeStr = (e.type === 1) ? "ENTRY" : "EXIT";
+            csv += `${e.timestamp},"${dateStr}",${typeStr}\n`;
+        });
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'cat_sentry_data.csv';
+        a.click();
+    }
+
+    function clearData() {
+        if(confirm("Are you sure you want to delete all history?")) {
+            localStorage.removeItem('catSentryData');
+            eventHistory = [];
+            entryCount = 0; 
+            exitCount = 0;
+            updateUI();
+            updateLog("History cleared.");
+        }
+    }
 
     async function connectToCat() {
         try {
@@ -101,17 +165,22 @@
 	   await timeChar.writeValue(timeBuffer);
 	   updateLog("Synced time with Cat Door!");
 
-            // 4. Get Characteristic
+            // 4. Get Event Characteristic (Live notifications)
             characteristic = await service.getCharacteristic(charUUID);
 
-            // 5. Start Notifications
+            // 5. Start Notifications for Live Events
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', handleNotifications);
+
+            // 6. Get History Characteristic
+            historyChar = await service.getCharacteristic(historyUUID);
+            await historyChar.startNotifications();
+            historyChar.addEventListener('characteristicvaluechanged', handleHistoryData);
 
             document.getElementById('connectBtn').innerText = "CONNECTED";
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('statusLine').innerText = "System: ONLINE | Battery: OK";
-            updateLog("Link established! Waiting for cats...");
+            updateLog("Link established! Loading history...");
 
         } catch (error) {
             console.log(error);
@@ -119,24 +188,49 @@
         }
     }
 
+    let saveTimer;
+
     function handleNotifications(event) {
         const value = event.target.value;
         const decoder = new TextDecoder('utf-8');
         const message = decoder.decode(value).trim(); // "ENTRY" or "EXIT"
 
-        const timestamp = new Date().toLocaleTimeString();
-        updateLog(`[${timestamp}] EVENT TRIGGERED: ${message}`);
+        const timestampStr = new Date().toLocaleTimeString();
+        updateLog(`[${timestampStr}] EVENT TRIGGERED: ${message}`);
 
-        // Update Logic
-        if (message === "ENTRY") {
-            entryCount++;
-        } else if (message === "EXIT") {
-            exitCount++;
+        const type = (message === "ENTRY") ? 1 : (message === "EXIT") ? 2 : 0;
+        
+        if (type > 0) {
+            // Add, Save, Update immediately for live events
+            addEvent(Date.now(), type);
+            saveData();
+            updateUI();
         }
+    }
 
-        // Update Chart
-        chart.data.datasets[0].data = [entryCount, exitCount];
-        chart.update();
+    function handleHistoryData(event) {
+        const value = event.target.value;
+        
+        // Arduino sends LogEntry struct: 4 bytes (uint32_t timestamp) + 1 byte (uint8_t type)
+        if (value.byteLength === 5) {
+            const dataView = new DataView(value.buffer);
+            const tsSec = dataView.getUint32(0, true); // little-endian
+            const type = dataView.getUint8(4);
+            
+            // Add to list (returns true if new)
+            if (addEvent(tsSec * 1000, type)) {
+                // Optional: Log every single history item? Might spam.
+                // updateLog(`[HISTORY] Loaded event.`); 
+            }
+            
+            // Debounce the expensive Save/Chart Update operations
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(() => {
+                saveData();
+                updateUI();
+                updateLog("History sync finished. Data saved.");
+            }, 500);
+        }
     }
 
     function onDisconnected(event) {
