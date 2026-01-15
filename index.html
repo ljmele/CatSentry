@@ -65,7 +65,7 @@
         <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
         <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
         <button onclick="openSettings()" style="background-color: #333; color: #fff; border: 1px solid #00ff00;">☁️ GITHUB SYNC (SETUP)</button>
-        <button onclick="generateDemoData()" style="background-color: #9966ff; color: #fff;">DEMO MODE</button>
+        <!--<button onclick="generateDemoData()" style="background-color: #9966ff; color: #fff;">DEMO MODE</button>-->
     </div>
 
     <!-- 1. Console / Event Log (Moved Up) -->
@@ -220,15 +220,26 @@
     }
     // --- CLOUD SYNC ---
     function openSettings() {
-        const owner = prompt("GitHub Username:", ghStorage.config.owner);
+        let owner = prompt("GitHub Username:", ghStorage.config.owner);
         if(owner === null) return;
-        const repo = prompt("Repository Name (e.g., CatSentry):", ghStorage.config.repo);
-        const token = prompt("Personal Access Token (needs 'repo' or 'contents:write' scope):", ghStorage.config.token);
+        
+        let repo = prompt("Repository Name (e.g., CatSentry):", ghStorage.config.repo);
+        if(repo === null) return;
+
+        let token = prompt("Personal Access Token (starts with ghp_...):", ghStorage.config.token);
+        if(token === null) return;
+
+        // CRITICAL FIX: Phones often add a space after paste. We must trim!
+        owner = owner.trim();
+        repo = repo.trim();
+        token = token.trim();
 
         if (owner && repo && token) {
             ghStorage.saveConfig(owner, repo, token);
-            updateLog("GitHub settings saved! Attempting sync...");
+            updateLog(`Credentials saved for: ${owner}/${repo}`); // Feedback
             syncWithCloud();
+        } else {
+            updateLog("Error: Setup cancelled or fields empty.");
         }
     }
 
