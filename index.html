@@ -162,7 +162,6 @@
         try {
             updateLog("Scanning for CatSentry...");
             
-            // 1. Request Device
             device = await navigator.bluetooth.requestDevice({
                 filters: [{ name: 'CatSentry' }],
                 optionalServices: [serviceUUID]
@@ -170,39 +169,39 @@
 
             device.addEventListener('gattserverdisconnected', onDisconnected);
 
-            // 2. Connect to Server
             updateLog("Connecting to GATT Server...");
             server = await device.gatt.connect();
-
-            // 3. Get Service
             service = await server.getPrimaryService(serviceUUID);
 
-	   // 1. Get Time Characteristic
-	   const timeChar = await service.getCharacteristic("19b10002-e8f2-537e-4f6c-d104768a1214");
-
-	   // 2. Send Current Time (Unix Epoch in seconds)
-           const nowSeconds = Math.floor(Date.now() / 1000);
-	   // We need to send a Uint32 (4 bytes)
-	   const timeBuffer = new Uint32Array([nowSeconds]);
-	   await timeChar.writeValue(timeBuffer);
-	   updateLog("Synced time with Cat Door!");
-
-            // 4. Get Event Characteristic (Live notifications)
+            // --- STEP 1: SETUP LISTENERS (OPEN THE EARS) ---
+            
+            // A. Live Events
             characteristic = await service.getCharacteristic(charUUID);
-
-            // 5. Start Notifications for Live Events
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-
-            // 6. Get History Characteristic
+            
+            // B. History Data (CRITICAL: Listen BEFORE triggering dump)
             historyChar = await service.getCharacteristic(historyUUID);
             await historyChar.startNotifications();
             historyChar.addEventListener('characteristicvaluechanged', handleHistoryData);
+            
+            updateLog("Listeners ready.");
 
+            // --- STEP 2: TRIGGER SYNC (SHOUT THE COMMAND) ---
+            
+            const timeChar = await service.getCharacteristic("19b10002-e8f2-537e-4f6c-d104768a1214");
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            const timeBuffer = new Uint32Array([nowSeconds]);
+            
+            updateLog("Sending Time Sync...");
+            await timeChar.writeValue(timeBuffer); // <--- This now triggers the Arduino dump safely
+            
+            
+            // --- UI CLEANUP ---
             document.getElementById('connectBtn').innerText = "CONNECTED";
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('statusLine').innerText = "System: ONLINE | Battery: OK";
-            updateLog("Link established! Loading history...");
+            updateLog("Link established! Waiting for history...");
 
         } catch (error) {
             console.log(error);
