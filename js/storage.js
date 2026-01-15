@@ -119,7 +119,14 @@ class GitHubStorage {
         });
 
         if (response.status === 404) return null; // File doesn't exist yet
-        if (!response.ok) throw new Error("Failed to fetch file info");
+        
+        if (!response.ok) {
+            // Detailed error for debugging
+            const errText = `GitHub API Error: ${response.status} ${response.statusText}`;
+            if (response.status === 401) throw new Error("401 Unauthorized (Check Token)");
+            if (response.status === 403) throw new Error("403 Forbidden (Token needs 'repo' scope)");
+            throw new Error(errText);
+        }
         
         return await response.json();
     }
