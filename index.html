@@ -44,10 +44,6 @@
         }
         .period-btn.active { background: #00ff00; color: #000; }
         
-        /* Danger Zone */
-        .danger-zone { border-top: 1px solid #555; margin-top: 40px; padding-top: 20px; text-align: right; }
-        .btn-danger { background-color: #ff3333; color: #fff; }
-
         @media (max-width: 768px) {
             .grid-row { grid-template-columns: 1fr; }
             .full-width { grid-column: span 1; }
@@ -111,12 +107,6 @@
         </div>
     </div>
     
-    <!-- 3. Danger Zone -->
-    <div class="danger-zone">
-        <span style="color: #888; font-size: 12px; margin-right: 10px;">Dangerous Actions:</span>
-        <button onclick="clearData()" class="btn-danger">CLEAR HISTORY</button>
-    </div>
-
 </div>
 
 <script>
@@ -208,16 +198,6 @@
         a.click();
     }
 
-    function clearData() {
-        if(confirm("Are you sure you want to delete all history?")) {
-            localStorage.removeItem('catSentryData');
-            eventHistory = [];
-            entryCount = 0; 
-            exitCount = 0;
-            updateUI();
-            updateLog("History cleared.");
-        }
-    }
     // --- CLOUD SYNC ---
     function openSettings() {
         let owner = prompt("GitHub Username:", ghStorage.config.owner);

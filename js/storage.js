@@ -45,7 +45,7 @@ class GitHubStorage {
             const contentBase64 = btoa(unescape(encodeURIComponent(contentJson)));
 
             const body = {
-                message: "Update CatSentry Data [Auto-Sync]",
+                message: "Update CatSentry Data [Auto-Sync] [skip ci]",
                 content: contentBase64,
                 committer: {
                     name: "CatSentry Bot",
