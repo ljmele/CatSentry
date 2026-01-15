@@ -33,6 +33,7 @@
         <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
         <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
         <button onclick="clearData()" style="background-color: #ff6384; color: #fff;">CLEAR HISTORY</button>
+        <button onclick="generateDemoData()" style="background-color: #9966ff; color: #fff;">DEMO MODE</button>
     </div>
 
     <div class="card">
@@ -154,6 +155,41 @@
             updateUI();
             updateLog("History cleared.");
         }
+    }
+
+    function generateDemoData() {
+        const now = Date.now();
+        const oneDay = 24 * 60 * 60 * 1000;
+        
+        // Generate a month of fake cat activity
+        for (let i = 30; i >= 0; i--) {
+            const dayBase = now - (i * oneDay);
+            const numOutings = Math.floor(Math.random() * 5) + 1; // 1-5 times a day
+            
+            for (let j = 0; j < numOutings; j++) {
+                // Random time between 6 AM and 10 PM
+                const hourOffset = (6 + Math.floor(Math.random() * 16)) * 60 * 60 * 1000;
+                const duration = (10 + Math.floor(Math.random() * 120)) * 60 * 1000; // 10-120 mins outside
+                
+                const entryTime = dayBase + hourOffset;
+                const exitTime = entryTime + duration;
+                
+                addEvent(entryTime, 1); // Entry (went out earlier, coming in now? Logic is 1=Entry, 2=Exit)
+                // Wait... Logic in analytics.js expects:
+                // Type 2 (Exit) -> then Type 1 (Entry) defines duration.
+                
+                // Let's create an Exit first
+                const startOuting = dayBase + hourOffset;
+                const endOuting = startOuting + duration;
+                
+                addEvent(startOuting, 2); // EXIT
+                addEvent(endOuting, 1);   // ENTRY
+            }
+        }
+        
+        saveData();
+        updateUI();
+        updateLog("Generated 30 days of demo data!");
     }
 
     async function connectToCat() {
