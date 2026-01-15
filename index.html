@@ -239,7 +239,7 @@
         const value = event.target.value;
         
         // Arduino sends LogEntry struct: 4 bytes (uint32_t timestamp) + 1 byte (uint8_t type)
-        if (value.byteLength === 5) {
+        if (value.byteLength >= 5) {
             const dataView = new DataView(value.buffer);
             const tsSec = dataView.getUint32(0, true); // little-endian
             const type = dataView.getUint8(4);
