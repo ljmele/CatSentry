@@ -146,5 +146,37 @@
   {
     "timestamp": 1768678062269,
     "type": 1
+  },
+  {
+    "timestamp": 1768680018000,
+    "type": 2
+  },
+  {
+    "timestamp": 1768680382000,
+    "type": 2
+  },
+  {
+    "timestamp": 1768686199000,
+    "type": 1
+  },
+  {
+    "timestamp": 1768686518000,
+    "type": 1
+  },
+  {
+    "timestamp": 1768688347000,
+    "type": 2
+  },
+  {
+    "timestamp": 1768688493000,
+    "type": 1
+  },
+  {
+    "timestamp": 1768720555000,
+    "type": 2
+  },
+  {
+    "timestamp": 1768721213000,
+    "type": 1
   }
 ]
