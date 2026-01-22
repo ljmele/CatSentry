@@ -211,7 +211,10 @@ let durationChartInstance = null;
 let hourlyChartInstance = null;
 
 function renderVisitsChart(dataObj, period) {
-    const ctx = document.getElementById('visitsChart').getContext('2d');
+    const canvas = document.getElementById('visitsChart');
+    if (!canvas) return; // Guard against missing DOM element
+    
+    const ctx = canvas.getContext('2d');
     const labels = Object.keys(dataObj);
     const data = Object.values(dataObj);
     
@@ -246,7 +249,10 @@ function renderVisitsChart(dataObj, period) {
 }
 
 function renderDurationChart(dataObj, period) {
-    const ctx = document.getElementById('durationChart').getContext('2d');
+    const canvas = document.getElementById('durationChart');
+    if (!canvas) return; // Guard against missing DOM element
+    
+    const ctx = canvas.getContext('2d');
     const labels = Object.keys(dataObj);
     const data = Object.values(dataObj).map(m => Math.round(m)); 
 
@@ -283,7 +289,10 @@ function renderDurationChart(dataObj, period) {
 }
 
 function renderHourlyChart(dataArray) {
-    const ctx = document.getElementById('hourlyChart').getContext('2d');
+    const canvas = document.getElementById('hourlyChart');
+    if (!canvas) return; // Guard against missing DOM element
+    
+    const ctx = canvas.getContext('2d');
     const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
     
     if (hourlyChartInstance) hourlyChartInstance.destroy();

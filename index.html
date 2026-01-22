@@ -295,6 +295,7 @@
     
     function updateRecentEvents() {
         const listEl = document.getElementById('recentEventsList');
+        if (!listEl) return; // Guard against missing DOM element
         
         if (eventHistory.length === 0) {
             listEl.innerHTML = '<li class="no-events">No events recorded yet</li>';
