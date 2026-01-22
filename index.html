@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Sentry Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="js/analytics.js?v=1.2"></script>
-    <script src="js/storage.js?v=1.2"></script>
+    <script src="js/analytics.js?v=1.3"></script>
+    <script src="js/storage.js?v=1.3"></script>
     <style>
         body { font-family: 'Courier New', monospace; background-color: #1a1a1a; color: #00ff00; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; }
@@ -20,6 +20,7 @@
         }
         button:hover { opacity: 0.8; }
         button:disabled { background-color: #555; cursor: not-allowed; }
+        .btn-danger { background-color: #ff4444; color: #fff; }
         
         .status { margin-bottom: 20px; font-size: 14px; color: #888; }
         
@@ -44,33 +45,97 @@
         }
         .period-btn.active { background: #00ff00; color: #000; }
         
+        /* Stats bar */
+        .stats-bar { 
+            display: flex; gap: 20px; margin-bottom: 20px; 
+            background: #222; padding: 10px 15px; border-radius: 8px;
+        }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #00ff00; }
+        .stat-label { font-size: 12px; color: #888; }
+        
+        /* Recent Events List */
+        .recent-events { list-style: none; padding: 0; margin: 0; }
+        .recent-events li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            font-size: 14px;
+        }
+        .recent-events li:last-child { border-bottom: none; }
+        .recent-events li:hover { background: #2a2a2a; }
+        .event-type {
+            font-weight: bold;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            min-width: 60px;
+            text-align: center;
+        }
+        .event-type.entry { background: #36a2eb; color: #fff; }
+        .event-type.exit { background: #ff6384; color: #fff; }
+        .event-time { color: #888; font-size: 12px; }
+        .event-date { color: #aaa; }
+        .no-events { color: #666; text-align: center; padding: 20px; font-style: italic; }
+        
         @media (max-width: 768px) {
             .grid-row { grid-template-columns: 1fr; }
             .full-width { grid-column: span 1; }
+            .stats-bar { flex-wrap: wrap; }
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>CAT SENTRY v1.2</h1>
+    <h1>CAT SENTRY v1.3</h1>
     <div class="status" id="statusLine">System: DISCONNECTED</div>
+    
+    <!-- Quick Stats -->
+    <div class="stats-bar">
+        <div class="stat-item">
+            <div class="stat-value" id="statEntries">0</div>
+            <div class="stat-label">Entries</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value" id="statExits">0</div>
+            <div class="stat-label">Exits</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value" id="statCatStatus">❓</div>
+            <div class="stat-label">Cat Status</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-value" id="statDataQuality">-</div>
+            <div class="stat-label">Data Quality</div>
+        </div>
+    </div>
     
     <!-- Controls -->
     <div class="btn-group">
         <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
         <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
-        <button onclick="openSettings()" style="background-color: #333; color: #fff; border: 1px solid #00ff00;">☁️ GITHUB SYNC (SETUP)</button>
-        <!--<button onclick="generateDemoData()" style="background-color: #9966ff; color: #fff;">DEMO MODE</button>-->
+        <button onclick="openSettings()" style="background-color: #333; color: #fff; border: 1px solid #00ff00;">☁️ GITHUB SYNC</button>
+        <button onclick="cleanupData()" style="background-color: #ff9800; color: #000;">🧹 CLEANUP DATA</button>
     </div>
 
-    <!-- 1. Console / Event Log (Moved Up) -->
+    <!-- 1. Console / Event Log -->
     <div class="card" style="margin-bottom: 20px;">
         <h3 style="margin-bottom: 5px">Event Log</h3>
         <div id="log">Waiting for connection...</div>
     </div>
 
-    <!-- 2. Main Analytics with Day/Week/Month Toggle -->
+    <!-- 2. Recent Events (Last 10) -->
+    <div class="card" style="margin-bottom: 20px;">
+        <h3>Recent Activity</h3>
+        <ul class="recent-events" id="recentEventsList">
+            <li class="no-events">No events recorded yet</li>
+        </ul>
+    </div>
+
+    <!-- 3. Main Analytics with Day/Week/Month Toggle -->
     <div class="grid-row">
         <!-- Frequency Chart (Full Width) -->
         <div class="card full-width" style="height: 300px;">
@@ -111,15 +176,21 @@
 
 <script>
     // --- CONFIGURATION ---
-    // These must match your Arduino UUIDs exactly
     const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
     const charUUID    = "19b10001-e8f2-537e-4f6c-d104768a1214";
     const historyUUID = "19b10003-e8f2-537e-4f6c-d104768a1214";
+    
+    // Validation constants (must match Arduino)
+    const MIN_VALID_TIMESTAMP = 1577836800000; // Jan 1, 2020 in ms
 
     let device, server, service, characteristic, historyChar;
     
     // Load from LocalStorage
     let eventHistory = JSON.parse(localStorage.getItem('catSentryData')) || [];
+    
+    // Clean up any existing bad data on load
+    eventHistory = eventHistory.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
+    
     let entryCount = eventHistory.filter(e => e.type === 1).length;
     let exitCount = eventHistory.filter(e => e.type === 2).length;
 
@@ -144,11 +215,37 @@
         }
     });
 
+    // --- VALIDATION ---
+    function isValidEvent(timestamp, type) {
+        // Check timestamp is reasonable
+        if (timestamp < MIN_VALID_TIMESTAMP) {
+            console.warn(`Rejected event: timestamp ${timestamp} is before 2020`);
+            return false;
+        }
+        
+        // Check timestamp is not in the future (allow 1 minute tolerance for clock drift)
+        if (timestamp > Date.now() + 60000) {
+            console.warn(`Rejected event: timestamp ${timestamp} is in the future`);
+            return false;
+        }
+        
+        // Check type is valid
+        if (type !== 1 && type !== 2) {
+            console.warn(`Rejected event: invalid type ${type}`);
+            return false;
+        }
+        
+        return true;
+    }
+
     // --- PERSISTENCE & UTILS ---
     function addEvent(timestamp, type) {
-        // Dedup: Check if we already have this event.
-        // We use a 5-second "fuzzy match" because the Live event timestamp (phone time) 
-        // and the Arduino History timestamp (device time) might differ slightly.
+        // Validate first
+        if (!isValidEvent(timestamp, type)) {
+            return false;
+        }
+        
+        // Dedup with 5-second fuzzy match
         const exists = eventHistory.some(e => {
             return e.type === type && Math.abs(e.timestamp - timestamp) < 5000;
         });
@@ -159,13 +256,10 @@
         if (type === 1) entryCount++;
         if (type === 2) exitCount++;
         
-        // Optimize: Don't sort/save/updateUI on every single bulk history item.
-        // We will call save/update manually after bulk ops.
         return true;
     }
 
     function saveData() {
-        // Sort before saving to ensure order
         eventHistory.sort((a, b) => a.timestamp - b.timestamp);
         localStorage.setItem('catSentryData', JSON.stringify(eventHistory));
     }
@@ -173,21 +267,142 @@
     function updateUI() {
         chart.data.datasets[0].data = [entryCount, exitCount];
         chart.update();
+        
+        // Update stats bar
+        document.getElementById('statEntries').textContent = entryCount;
+        document.getElementById('statExits').textContent = exitCount;
+        
+        // Determine cat status based on last event
+        const sorted = [...eventHistory].sort((a, b) => b.timestamp - a.timestamp);
+        if (sorted.length > 0) {
+            const lastEvent = sorted[0];
+            const status = lastEvent.type === 2 ? "🌳 Outside" : "🏠 Inside";
+            document.getElementById('statCatStatus').textContent = status;
+        }
+        
+        // Calculate data quality (ratio of paired events)
+        const quality = calculateDataQuality();
+        document.getElementById('statDataQuality').textContent = quality + "%";
+
+        // Update Recent Events list
+        updateRecentEvents();
 
         // Update Advanced Analytics
         if (typeof updateAnalytics === 'function') {
             updateAnalytics(eventHistory);
         }
     }
+    
+    function updateRecentEvents() {
+        const listEl = document.getElementById('recentEventsList');
+        
+        if (eventHistory.length === 0) {
+            listEl.innerHTML = '<li class="no-events">No events recorded yet</li>';
+            return;
+        }
+        
+        // Get last 10 events, most recent first
+        const recent = [...eventHistory]
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 10);
+        
+        listEl.innerHTML = recent.map(event => {
+            const date = new Date(event.timestamp);
+            const typeLabel = event.type === 1 ? 'ENTRY' : 'EXIT';
+            const typeClass = event.type === 1 ? 'entry' : 'exit';
+            const icon = event.type === 1 ? '🏠' : '🌳';
+            
+            // Format time nicely
+            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dateStr = date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+            
+            // Check if this is today
+            const today = new Date();
+            const isToday = date.toDateString() === today.toDateString();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const isYesterday = date.toDateString() === yesterday.toDateString();
+            
+            let displayDate = dateStr;
+            if (isToday) displayDate = 'Today';
+            else if (isYesterday) displayDate = 'Yesterday';
+            
+            return `
+                <li>
+                    <span>
+                        <span class="event-type ${typeClass}">${icon} ${typeLabel}</span>
+                    </span>
+                    <span>
+                        <span class="event-date">${displayDate}</span>
+                        <span class="event-time"> at ${timeStr}</span>
+                    </span>
+                </li>
+            `;
+        }).join('');
+    }
+    
+    function calculateDataQuality() {
+        if (eventHistory.length === 0) return 100;
+        
+        // Count how many exit-entry pairs we have
+        const sorted = [...eventHistory].sort((a, b) => a.timestamp - b.timestamp);
+        let pairs = 0;
+        let pendingExit = false;
+        
+        for (const event of sorted) {
+            if (event.type === 2) { // EXIT
+                if (pendingExit) {
+                    // Double exit = missed entry
+                } else {
+                    pendingExit = true;
+                }
+            } else if (event.type === 1) { // ENTRY
+                if (pendingExit) {
+                    pairs++;
+                    pendingExit = false;
+                }
+                // Entry without exit = missed exit (we don't penalize this as much)
+            }
+        }
+        
+        const totalExits = sorted.filter(e => e.type === 2).length;
+        if (totalExits === 0) return 100;
+        
+        return Math.round((pairs / totalExits) * 100);
+    }
+
+    function cleanupData() {
+        if (!confirm("This will remove all events with invalid timestamps (1970 dates). Continue?")) {
+            return;
+        }
+        
+        const before = eventHistory.length;
+        eventHistory = eventHistory.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
+        const after = eventHistory.length;
+        
+        // Recalculate counts
+        entryCount = eventHistory.filter(e => e.type === 1).length;
+        exitCount = eventHistory.filter(e => e.type === 2).length;
+        
+        saveData();
+        updateUI();
+        
+        updateLog(`Cleanup complete: removed ${before - after} invalid events`);
+        
+        // Re-sync to cloud
+        if (ghStorage.isConfigured) {
+            ghStorage.pushData(eventHistory);
+        }
+    }
 
     function downloadCSV() {
-        let csv = "Timestamp,Date,Type\n";
-        // Ensure sorted for export
+        let csv = "Timestamp,Date,Type,Valid\n";
         const sorted = [...eventHistory].sort((a, b) => a.timestamp - b.timestamp);
         sorted.forEach(e => {
             const dateStr = new Date(e.timestamp).toLocaleString();
             const typeStr = (e.type === 1) ? "ENTRY" : "EXIT";
-            csv += `${e.timestamp},"${dateStr}",${typeStr}\n`;
+            const valid = e.timestamp >= MIN_VALID_TIMESTAMP ? "Yes" : "No";
+            csv += `${e.timestamp},"${dateStr}",${typeStr},${valid}\n`;
         });
         
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -209,14 +424,13 @@
         let token = prompt("Personal Access Token (starts with ghp_...):", ghStorage.config.token);
         if(token === null) return;
 
-        // CRITICAL FIX: Phones often add a space after paste. We must trim!
         owner = owner.trim();
         repo = repo.trim();
         token = token.trim();
 
         if (owner && repo && token) {
             ghStorage.saveConfig(owner, repo, token);
-            updateLog(`Credentials saved for: ${owner}/${repo}`); // Feedback
+            updateLog(`Credentials saved for: ${owner}/${repo}`);
             syncWithCloud();
         } else {
             updateLog("Error: Setup cancelled or fields empty.");
@@ -224,30 +438,28 @@
     }
 
     async function syncWithCloud() {
-        // 1. Pull remote data
         const remoteData = await ghStorage.pullData();
         
         if (remoteData) {
-            // 2. Merge Strategies
-            let merged = [...eventHistory, ...remoteData];
+            // Filter remote data for valid timestamps too
+            const validRemote = remoteData.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
             
-            // Remove duplicates (same timestamp AND type)
+            let merged = [...eventHistory, ...validRemote];
+            
             const uniqueStringEvents = new Set(merged.map(e => JSON.stringify(e)));
             const uniqueEvents = Array.from(uniqueStringEvents).map(s => JSON.parse(s));
             
             eventHistory = uniqueEvents;
-            // Re-calculate counts
             entryCount = eventHistory.filter(e => e.type === 1).length;
             exitCount = eventHistory.filter(e => e.type === 2).length;
             
-            // Update LocalStorage and UI
             saveData(); 
             updateUI();
         }
         
-        // 3. Push back the merged state
         await ghStorage.pushData(eventHistory);
     }
+
     async function connectToCat() {
         try {
             updateLog("Scanning for CatSentry...");
@@ -263,31 +475,27 @@
             server = await device.gatt.connect();
             service = await server.getPrimaryService(serviceUUID);
 
-            // --- STEP 1: SETUP LISTENERS (OPEN THE EARS) ---
-            
             // A. Live Events
             characteristic = await service.getCharacteristic(charUUID);
             await characteristic.startNotifications();
             characteristic.addEventListener('characteristicvaluechanged', handleNotifications);
             
-            // B. History Data (CRITICAL: Listen BEFORE triggering dump)
+            // B. History Data
             historyChar = await service.getCharacteristic(historyUUID);
             await historyChar.startNotifications();
             historyChar.addEventListener('characteristicvaluechanged', handleHistoryData);
             
             updateLog("Listeners ready.");
 
-            // --- STEP 2: TRIGGER SYNC (SHOUT THE COMMAND) ---
-            
+            // Send Time Sync
             const timeChar = await service.getCharacteristic("19b10002-e8f2-537e-4f6c-d104768a1214");
             const nowSeconds = Math.floor(Date.now() / 1000);
             const timeBuffer = new Uint32Array([nowSeconds]);
             
-            updateLog("Sending Time Sync...");
-            await timeChar.writeValue(timeBuffer); // <--- This now triggers the Arduino dump safely
+            updateLog(`Sending Time Sync: ${nowSeconds} (${new Date().toLocaleString()})`);
+            await timeChar.writeValue(timeBuffer);
             
-            
-            // --- UI CLEANUP ---
+            // UI
             document.getElementById('connectBtn').innerText = "CONNECTED";
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('statusLine').innerText = "System: ONLINE | Battery: OK";
@@ -300,11 +508,12 @@
     }
 
     let saveTimer;
+    let historyEventCount = 0;
 
     function handleNotifications(event) {
         const value = event.target.value;
         const decoder = new TextDecoder('utf-8');
-        const message = decoder.decode(value).trim(); // "ENTRY" or "EXIT"
+        const message = decoder.decode(value).trim();
 
         const timestampStr = new Date().toLocaleTimeString();
         updateLog(`[${timestampStr}] EVENT TRIGGERED: ${message}`);
@@ -312,12 +521,10 @@
         const type = (message === "ENTRY") ? 1 : (message === "EXIT") ? 2 : 0;
         
         if (type > 0) {
-            // Add, Save, Update immediately for live events
             addEvent(Date.now(), type);
             saveData();
             updateUI();
 
-            // Auto-push live events to cloud
             if (ghStorage.isConfigured) {
                 ghStorage.pushData(eventHistory);
             }
@@ -327,30 +534,33 @@
     function handleHistoryData(event) {
         const value = event.target.value;
         
-        // Arduino sends LogEntry struct: 4 bytes (uint32_t timestamp) + 1 byte (uint8_t type)
         if (value.byteLength >= 5) {
             const dataView = new DataView(value.buffer);
-            const tsSec = dataView.getUint32(0, true); // little-endian
+            const tsSec = dataView.getUint32(0, true);
             const type = dataView.getUint8(4);
+            const tsMs = tsSec * 1000;
             
-            // Add to list (returns true if new)
-            if (addEvent(tsSec * 1000, type)) {
-                // Optional: Log every single history item? Might spam.
-                // updateLog(`[HISTORY] Loaded event.`); 
+            // Validate before adding
+            if (isValidEvent(tsMs, type)) {
+                if (addEvent(tsMs, type)) {
+                    historyEventCount++;
+                }
+            } else {
+                updateLog(`⚠️ Rejected invalid history event (ts: ${tsSec})`);
             }
             
-            // Debounce the expensive Save/Chart Update operations
+            // Debounce save/update
             if (saveTimer) clearTimeout(saveTimer);
             saveTimer = setTimeout(() => {
                 saveData();
                 updateUI();
                 
-                // --- AUTO SYNC ---
                 if (ghStorage.isConfigured) {
                    ghStorage.pushData(eventHistory);
                 }
 
-                updateLog("History sync finished. Data saved.");
+                updateLog(`History sync finished. Loaded ${historyEventCount} new events.`);
+                historyEventCount = 0;
             }, 500);
         }
     }
@@ -368,9 +578,10 @@
     }
 
     // --- AUTO STARTUP ---
+    updateUI(); // Show initial stats
+    
     if (ghStorage && ghStorage.isConfigured) {
         updateLog("Found GitHub credentials. Checking for updates...");
-        // Non-blocking sync on load
         syncWithCloud();
     }
 </script>
