@@ -1,4 +1,4 @@
-// analytics.js - v1.3 with robust duration calculation
+// analytics.js - v1.4 with State Machine logic for robust duration calculation
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
@@ -30,8 +30,8 @@ function updateAnalytics(history) {
 
     const sorted = [...validHistory].sort((a, b) => a.timestamp - b.timestamp);
 
-    // 1. Process base data (Daily resolution)
-    const { dailyCounts, dailyDurations, hourlyActivity, stats } = processData(sorted);
+    // 1. Process base data using State Machine (Daily resolution)
+    const { dailyCounts, dailyDurations, hourlyActivity, stats, processedEvents } = processDataWithStateMachine(sorted);
     
     // Log stats for debugging
     console.log("Analytics Stats:", stats);
@@ -39,6 +39,9 @@ function updateAnalytics(history) {
     // Cache for aggregator
     cachedDailyCounts = dailyCounts;
     cachedDailyDurations = dailyDurations;
+    
+    // Store processed events globally for the Recent Events display
+    window.lastProcessedEvents = processedEvents;
 
     // 2. Render Activity Radar
     renderHourlyChart(hourlyActivity);
@@ -100,99 +103,128 @@ function aggregateData(dailyData, period) {
 }
 
 /**
- * Process raw events into chart-friendly datasets.
- * Uses smart pairing algorithm to handle missing events.
+ * STATE MACHINE APPROACH
+ * 
+ * Rules:
+ * - Cat starts INSIDE (conservative assumption)
+ * - EXIT when inside → cat goes outside, start timing
+ * - EXIT when already outside → IGNORED (duplicate/noise)
+ * - ENTRY when outside → cat comes inside, record duration
+ * - ENTRY when already inside → IGNORED (duplicate/noise)
+ * 
+ * This ensures we only count time when we have valid EXIT→ENTRY pairs.
  */
-function processData(events) {
-    const dailyCounts = {};     
-    const dailyDurations = {};  
-    const hourlyActivity = new Array(24).fill(0);
+function processDataWithStateMachine(events) {
+    const dailyCounts = {};      // Counts VALID outings (EXIT→ENTRY pairs)
+    const dailyDurations = {};   // Duration in minutes
+    const hourlyActivity = new Array(24).fill(0); // All events for activity pattern
+    
+    // Processed events with their effective status
+    const processedEvents = [];
     
     // Statistics for debugging
     const stats = {
         totalEvents: events.length,
-        entries: 0,
-        exits: 0,
-        pairedOutings: 0,
-        unpairedExits: 0,
-        unpairedEntries: 0,
-        invalidDurations: 0
+        effectiveExits: 0,
+        effectiveEntries: 0,
+        ignoredExits: 0,
+        ignoredEntries: 0,
+        completedOutings: 0,
+        invalidDurations: 0,
+        totalTimeOutsideMinutes: 0
     };
 
-    // --- SMART PAIRING ALGORITHM ---
-    // Build a list of "outings" by pairing exits with their following entries
-    const outings = [];
-    let pendingExit = null;
+    // STATE MACHINE
+    let catIsOutside = false;
+    let currentOuting = null; // { exitTimestamp, exitDateKey }
 
     for (const event of events) {
         const date = new Date(event.timestamp);
         const dateKey = date.toLocaleDateString();
         const hour = date.getHours();
 
-        // Count hourly activity (all events)
+        // Always count for hourly activity pattern (raw data)
         hourlyActivity[hour]++;
+        
+        // Process event record
+        const processedEvent = {
+            timestamp: event.timestamp,
+            type: event.type,
+            effective: false,
+            reason: ''
+        };
 
         if (event.type === 2) { // EXIT
-            stats.exits++;
-            
-            // If we already have a pending exit (cat exited twice without entering)
-            // This means we missed an entry. Close the previous outing with unknown duration.
-            if (pendingExit !== null) {
-                stats.unpairedExits++;
-                // We could add a synthetic entry here, but it's better to just discard
-                // the previous incomplete outing for duration purposes
+            if (!catIsOutside) {
+                // Valid exit: cat was inside, now going outside
+                catIsOutside = true;
+                currentOuting = {
+                    exitTimestamp: event.timestamp,
+                    exitDateKey: dateKey
+                };
+                
+                processedEvent.effective = true;
+                processedEvent.reason = 'Cat went outside';
+                stats.effectiveExits++;
+                
+            } else {
+                // Ignored: cat already outside (duplicate exit or missed entry)
+                processedEvent.effective = false;
+                processedEvent.reason = 'Ignored: cat already outside';
+                stats.ignoredExits++;
             }
             
-            pendingExit = {
-                exitTimestamp: event.timestamp,
-                exitDate: dateKey
-            };
-            
-            // Count exits per day (this is our "outing frequency")
-            dailyCounts[dateKey] = (dailyCounts[dateKey] || 0) + 1;
-            
         } else if (event.type === 1) { // ENTRY
-            stats.entries++;
-            
-            if (pendingExit !== null) {
-                // We have a complete outing!
-                const durationMs = event.timestamp - pendingExit.exitTimestamp;
+            if (catIsOutside && currentOuting) {
+                // Valid entry: cat was outside, now coming inside
+                catIsOutside = false;
+                
+                const durationMs = event.timestamp - currentOuting.exitTimestamp;
                 
                 // Validate duration
                 if (durationMs >= MIN_OUTING_DURATION_MS && durationMs <= MAX_OUTING_DURATION_MS) {
                     const minutes = durationMs / 1000 / 60;
                     
-                    // Attribute duration to the EXIT date (when the outing started)
-                    const exitDateKey = pendingExit.exitDate;
-                    dailyDurations[exitDateKey] = (dailyDurations[exitDateKey] || 0) + minutes;
+                    // Count this as a completed outing on the EXIT date
+                    dailyCounts[currentOuting.exitDateKey] = (dailyCounts[currentOuting.exitDateKey] || 0) + 1;
+                    dailyDurations[currentOuting.exitDateKey] = (dailyDurations[currentOuting.exitDateKey] || 0) + minutes;
                     
-                    outings.push({
-                        exitTime: pendingExit.exitTimestamp,
-                        entryTime: event.timestamp,
-                        durationMinutes: minutes
-                    });
+                    stats.completedOutings++;
+                    stats.totalTimeOutsideMinutes += minutes;
                     
-                    stats.pairedOutings++;
-                } else {
-                    // Duration out of range - either too short (noise) or too long (missed events)
+                    processedEvent.effective = true;
+                    processedEvent.reason = `Completed outing: ${Math.round(minutes)} min`;
+                    
+                } else if (durationMs < MIN_OUTING_DURATION_MS) {
+                    // Too short - likely noise
+                    processedEvent.effective = true; // Still effective (state changed)
+                    processedEvent.reason = `Quick return (${Math.round(durationMs/1000)}s) - not counted`;
                     stats.invalidDurations++;
-                    console.log(`Invalid duration: ${Math.round(durationMs/1000/60)} minutes`);
+                    
+                } else {
+                    // Too long - likely missed events
+                    processedEvent.effective = true; // Still effective (state changed)
+                    processedEvent.reason = `Duration too long (${Math.round(durationMs/1000/60/60)}h) - not counted`;
+                    stats.invalidDurations++;
                 }
                 
-                pendingExit = null;
+                currentOuting = null;
+                stats.effectiveEntries++;
                 
             } else {
-                // Entry without a preceding exit - we missed the exit event
-                stats.unpairedEntries++;
-                // Nothing to do here - we can't calculate duration without knowing when cat left
+                // Ignored: cat already inside (duplicate entry or missed exit)
+                processedEvent.effective = false;
+                processedEvent.reason = 'Ignored: cat already inside';
+                stats.ignoredEntries++;
             }
         }
+        
+        processedEvents.push(processedEvent);
     }
     
-    // Handle case where cat is currently outside (exit but no entry yet)
-    if (pendingExit !== null) {
-        // Don't count this as unpaired - it's just "currently outside"
-        console.log("Cat appears to be currently outside");
+    // If cat is currently outside, note it
+    if (catIsOutside) {
+        console.log("Cat appears to be currently outside (outing in progress)");
     }
 
     // Ensure all dates in counts also exist in durations (with 0 if no data)
@@ -202,7 +234,32 @@ function processData(events) {
         }
     });
 
-    return { dailyCounts, dailyDurations, hourlyActivity, stats };
+    return { dailyCounts, dailyDurations, hourlyActivity, stats, processedEvents };
+}
+
+/**
+ * Get current cat status based on state machine logic
+ */
+function getCatStatus(events) {
+    if (!events || events.length === 0) return { status: 'unknown', icon: '❓' };
+    
+    const validEvents = events.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
+    const sorted = [...validEvents].sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Run state machine to determine current state
+    let catIsOutside = false;
+    
+    for (const event of sorted) {
+        if (event.type === 2 && !catIsOutside) { // EXIT
+            catIsOutside = true;
+        } else if (event.type === 1 && catIsOutside) { // ENTRY
+            catIsOutside = false;
+        }
+    }
+    
+    return catIsOutside 
+        ? { status: 'outside', icon: '🌳', text: 'Outside' }
+        : { status: 'inside', icon: '🏠', text: 'Inside' };
 }
 
 // --- Chart Instances ---
@@ -212,13 +269,13 @@ let hourlyChartInstance = null;
 
 function renderVisitsChart(dataObj, period) {
     const canvas = document.getElementById('visitsChart');
-    if (!canvas) return; // Guard against missing DOM element
+    if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
     const labels = Object.keys(dataObj);
     const data = Object.values(dataObj);
     
-    const labelText = period === 'day' ? 'Exits per Day' : `Exits per ${period.charAt(0).toUpperCase() + period.slice(1)}`;
+    const labelText = period === 'day' ? 'Outings per Day' : `Outings per ${period.charAt(0).toUpperCase() + period.slice(1)}`;
 
     if (visitsChartInstance) visitsChartInstance.destroy();
 
@@ -242,7 +299,7 @@ function renderVisitsChart(dataObj, period) {
             },
             plugins: { 
                 legend: { display: false },
-                title: { display: true, text: 'Frequency of Outings', color: '#fff' } 
+                title: { display: true, text: 'Completed Outings (EXIT→ENTRY pairs)', color: '#fff' } 
             }
         }
     });
@@ -250,7 +307,7 @@ function renderVisitsChart(dataObj, period) {
 
 function renderDurationChart(dataObj, period) {
     const canvas = document.getElementById('durationChart');
-    if (!canvas) return; // Guard against missing DOM element
+    if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
     const labels = Object.keys(dataObj);
@@ -282,7 +339,7 @@ function renderDurationChart(dataObj, period) {
             },
             plugins: { 
                 legend: { display: false },
-                title: { display: true, text: 'Time Spent Outside', color: '#fff' } 
+                title: { display: true, text: 'Time Spent Outside (validated)', color: '#fff' } 
             }
         }
     });
@@ -290,7 +347,7 @@ function renderDurationChart(dataObj, period) {
 
 function renderHourlyChart(dataArray) {
     const canvas = document.getElementById('hourlyChart');
-    if (!canvas) return; // Guard against missing DOM element
+    if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
     const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
@@ -322,7 +379,7 @@ function renderHourlyChart(dataArray) {
                 }
             },
             plugins: { 
-                title: { display: true, text: 'Preferred Hours (24h)', color: '#fff' },
+                title: { display: true, text: 'Activity by Hour (all events)', color: '#fff' },
                 legend: { display: false }
             }
         }
