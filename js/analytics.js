@@ -1,8 +1,9 @@
-// analytics.js - v1.4 with State Machine logic for robust duration calculation
+// analytics.js - v1.5 with State Machine logic + Weather Integration
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
 let cachedDailyDurations = {};
+let cachedWeatherData = {}; // Cache weather data by date
 
 // Minimum valid timestamp (Jan 1, 2020 in ms)
 const MIN_VALID_TIMESTAMP = 1577836800000;
@@ -12,6 +13,122 @@ const MAX_OUTING_DURATION_MS = 24 * 60 * 60 * 1000;
 
 // Minimum outing duration to consider valid (30 seconds)
 const MIN_OUTING_DURATION_MS = 30 * 1000;
+
+// Weather configuration - set your location coordinates
+// Default: London. Change to your location for accurate weather.
+let WEATHER_CONFIG = {
+    latitude: 51.5074,  // Change to your latitude
+    longitude: -0.1278, // Change to your longitude
+    enabled: true
+};
+
+// Load saved weather config
+(function loadWeatherConfig() {
+    const saved = localStorage.getItem('catSentryWeatherConfig');
+    if (saved) {
+        try {
+            WEATHER_CONFIG = { ...WEATHER_CONFIG, ...JSON.parse(saved) };
+        } catch (e) {}
+    }
+})();
+
+function saveWeatherConfig() {
+    localStorage.setItem('catSentryWeatherConfig', JSON.stringify(WEATHER_CONFIG));
+}
+
+// Weather code to emoji mapping (WMO codes)
+const WEATHER_ICONS = {
+    0: '☀️',   // Clear sky
+    1: '🌤️',   // Mainly clear
+    2: '⛅',   // Partly cloudy
+    3: '☁️',   // Overcast
+    45: '🌫️',  // Fog
+    48: '🌫️',  // Depositing rime fog
+    51: '🌧️',  // Light drizzle
+    53: '🌧️',  // Moderate drizzle
+    55: '🌧️',  // Dense drizzle
+    61: '🌧️',  // Slight rain
+    63: '🌧️',  // Moderate rain
+    65: '🌧️',  // Heavy rain
+    71: '🌨️',  // Slight snow
+    73: '🌨️',  // Moderate snow
+    75: '🌨️',  // Heavy snow
+    77: '🌨️',  // Snow grains
+    80: '🌦️',  // Slight rain showers
+    81: '🌦️',  // Moderate rain showers
+    82: '⛈️',  // Violent rain showers
+    85: '🌨️',  // Slight snow showers
+    86: '🌨️',  // Heavy snow showers
+    95: '⛈️',  // Thunderstorm
+    96: '⛈️',  // Thunderstorm with hail
+    99: '⛈️'   // Thunderstorm with heavy hail
+};
+
+function getWeatherIcon(code) {
+    return WEATHER_ICONS[code] || '❓';
+}
+
+/**
+ * Fetch historical weather data from Open-Meteo (free, no API key)
+ * @param {string[]} dates - Array of date strings in YYYY-MM-DD format
+ */
+async function fetchWeatherData(dates) {
+    if (!WEATHER_CONFIG.enabled || dates.length === 0) return {};
+    
+    // Filter dates we don't have cached
+    const uncachedDates = dates.filter(d => !cachedWeatherData[d]);
+    
+    if (uncachedDates.length === 0) {
+        return cachedWeatherData;
+    }
+    
+    // Sort dates to find range
+    const sortedDates = [...uncachedDates].sort();
+    const startDate = sortedDates[0];
+    const endDate = sortedDates[sortedDates.length - 1];
+    
+    // Don't fetch future dates
+    const today = new Date().toISOString().split('T')[0];
+    const adjustedEndDate = endDate > today ? today : endDate;
+    
+    if (startDate > today) return cachedWeatherData;
+    
+    try {
+        const url = `https://archive-api.open-meteo.com/v1/archive?` +
+            `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
+            `&start_date=${startDate}&end_date=${adjustedEndDate}` +
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+            `&timezone=auto`;
+        
+        console.log('Fetching weather data:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            console.warn('Weather API error:', response.status);
+            return cachedWeatherData;
+        }
+        
+        const data = await response.json();
+        
+        if (data.daily && data.daily.time) {
+            data.daily.time.forEach((date, idx) => {
+                cachedWeatherData[date] = {
+                    code: data.daily.weather_code[idx],
+                    icon: getWeatherIcon(data.daily.weather_code[idx]),
+                    tempMax: Math.round(data.daily.temperature_2m_max[idx]),
+                    tempMin: Math.round(data.daily.temperature_2m_min[idx])
+                };
+            });
+        }
+        
+        console.log('Weather data cached:', Object.keys(cachedWeatherData).length, 'days');
+        
+    } catch (error) {
+        console.warn('Failed to fetch weather data:', error);
+    }
+    
+    return cachedWeatherData;
+}
 
 /**
  * Updates all detailed analytics charts based on the event history.
@@ -68,8 +185,34 @@ function refreshTimeCharts() {
     const aggCounts = aggregateData(cachedDailyCounts, currentPeriod);
     const aggDuration = aggregateData(cachedDailyDurations, currentPeriod);
 
+    // These are now async but we don't need to await them
     renderVisitsChart(aggCounts, currentPeriod);
     renderDurationChart(aggDuration, currentPeriod);
+}
+
+/**
+ * Configure weather location
+ */
+function configureWeather() {
+    const lat = prompt('Enter your latitude (e.g., 51.5074 for London):', WEATHER_CONFIG.latitude);
+    if (lat === null) return;
+    
+    const lon = prompt('Enter your longitude (e.g., -0.1278 for London):', WEATHER_CONFIG.longitude);
+    if (lon === null) return;
+    
+    const enabled = confirm('Enable weather display on charts?');
+    
+    WEATHER_CONFIG.latitude = parseFloat(lat) || 51.5074;
+    WEATHER_CONFIG.longitude = parseFloat(lon) || -0.1278;
+    WEATHER_CONFIG.enabled = enabled;
+    
+    saveWeatherConfig();
+    
+    // Clear cache and refresh
+    cachedWeatherData = {};
+    refreshTimeCharts();
+    
+    console.log('Weather config saved:', WEATHER_CONFIG);
 }
 
 /**
@@ -103,16 +246,25 @@ function aggregateData(dailyData, period) {
 }
 
 /**
- * STATE MACHINE APPROACH
+ * STATE MACHINE APPROACH (v2 - "Keep Last" Logic)
  * 
  * Rules:
  * - Cat starts INSIDE (conservative assumption)
  * - EXIT when inside → cat goes outside, start timing
- * - EXIT when already outside → IGNORED (duplicate/noise)
- * - ENTRY when outside → cat comes inside, record duration
- * - ENTRY when already inside → IGNORED (duplicate/noise)
+ * - EXIT when already outside → UPDATE exit timestamp (cat was lingering, this might be the real exit)
+ * - ENTRY when outside → cat comes inside, record duration using LAST exit timestamp
+ * - ENTRY when already inside → UPDATE entry timestamp (same logic)
  * 
- * This ensures we only count time when we have valid EXIT→ENTRY pairs.
+ * The "keep last" approach handles the lingering scenario:
+ * - 10:23 EXIT (lingering starts)
+ * - 10:24 EXIT (still lingering) → updates exit time
+ * - 10:24 EXIT (still lingering) → updates exit time  
+ * - [gap - cat came back undetected]
+ * - 10:27 EXIT (real exit) → updates exit time to 10:27 ✓
+ * - 10:45 ENTRY → duration calculated from 10:27, not 10:23
+ * 
+ * The key insight: consecutive same-type events within a session mean lingering.
+ * The LAST one before a state change is the "real" event.
  */
 function processDataWithStateMachine(events) {
     const dailyCounts = {};      // Counts VALID outings (EXIT→ENTRY pairs)
@@ -127,8 +279,8 @@ function processDataWithStateMachine(events) {
         totalEvents: events.length,
         effectiveExits: 0,
         effectiveEntries: 0,
-        ignoredExits: 0,
-        ignoredEntries: 0,
+        updatedExits: 0,
+        updatedEntries: 0,
         completedOutings: 0,
         invalidDurations: 0,
         totalTimeOutsideMinutes: 0
@@ -136,9 +288,12 @@ function processDataWithStateMachine(events) {
 
     // STATE MACHINE
     let catIsOutside = false;
-    let currentOuting = null; // { exitTimestamp, exitDateKey }
+    let currentOuting = null; // { exitTimestamp, exitDateKey, exitEventIndex }
+    let lastEntryTimestamp = null;
+    let lastEntryIndex = null;
 
-    for (const event of events) {
+    for (let i = 0; i < events.length; i++) {
+        const event = events[i];
         const date = new Date(event.timestamp);
         const dateKey = date.toLocaleDateString();
         const hour = date.getHours();
@@ -156,11 +311,12 @@ function processDataWithStateMachine(events) {
 
         if (event.type === 2) { // EXIT
             if (!catIsOutside) {
-                // Valid exit: cat was inside, now going outside
+                // First exit: cat was inside, now going outside
                 catIsOutside = true;
                 currentOuting = {
                     exitTimestamp: event.timestamp,
-                    exitDateKey: dateKey
+                    exitDateKey: dateKey,
+                    exitEventIndex: i
                 };
                 
                 processedEvent.effective = true;
@@ -168,10 +324,28 @@ function processDataWithStateMachine(events) {
                 stats.effectiveExits++;
                 
             } else {
-                // Ignored: cat already outside (duplicate exit or missed entry)
-                processedEvent.effective = false;
-                processedEvent.reason = 'Ignored: cat already outside';
-                stats.ignoredExits++;
+                // Cat already "outside" - UPDATE the exit timestamp (lingering scenario)
+                // Mark the previous exit as superseded
+                if (currentOuting && currentOuting.exitEventIndex !== null) {
+                    const prevIdx = currentOuting.exitEventIndex;
+                    if (processedEvents[prevIdx]) {
+                        processedEvents[prevIdx].effective = false;
+                        processedEvents[prevIdx].reason = 'Superseded: later exit detected';
+                        stats.effectiveExits--;
+                        stats.updatedExits++;
+                    }
+                }
+                
+                // Update to this new exit
+                currentOuting = {
+                    exitTimestamp: event.timestamp,
+                    exitDateKey: dateKey,
+                    exitEventIndex: i
+                };
+                
+                processedEvent.effective = true;
+                processedEvent.reason = 'Cat went outside (updated)';
+                stats.effectiveExits++;
             }
             
         } else if (event.type === 1) { // ENTRY
@@ -196,26 +370,38 @@ function processDataWithStateMachine(events) {
                     processedEvent.reason = `Completed outing: ${Math.round(minutes)} min`;
                     
                 } else if (durationMs < MIN_OUTING_DURATION_MS) {
-                    // Too short - likely noise
-                    processedEvent.effective = true; // Still effective (state changed)
+                    // Too short - likely noise (but still counts as state change)
+                    processedEvent.effective = true;
                     processedEvent.reason = `Quick return (${Math.round(durationMs/1000)}s) - not counted`;
                     stats.invalidDurations++;
                     
                 } else {
                     // Too long - likely missed events
-                    processedEvent.effective = true; // Still effective (state changed)
+                    processedEvent.effective = true;
                     processedEvent.reason = `Duration too long (${Math.round(durationMs/1000/60/60)}h) - not counted`;
                     stats.invalidDurations++;
                 }
                 
+                lastEntryTimestamp = event.timestamp;
+                lastEntryIndex = i;
                 currentOuting = null;
                 stats.effectiveEntries++;
                 
             } else {
-                // Ignored: cat already inside (duplicate entry or missed exit)
-                processedEvent.effective = false;
-                processedEvent.reason = 'Ignored: cat already inside';
-                stats.ignoredEntries++;
+                // Cat already "inside" - UPDATE the entry timestamp
+                if (lastEntryIndex !== null && processedEvents[lastEntryIndex]) {
+                    processedEvents[lastEntryIndex].effective = false;
+                    processedEvents[lastEntryIndex].reason = 'Superseded: later entry detected';
+                    stats.effectiveEntries--;
+                    stats.updatedEntries++;
+                }
+                
+                lastEntryTimestamp = event.timestamp;
+                lastEntryIndex = i;
+                
+                processedEvent.effective = true;
+                processedEvent.reason = 'Cat came inside (updated)';
+                stats.effectiveEntries++;
             }
         }
         
@@ -238,7 +424,7 @@ function processDataWithStateMachine(events) {
 }
 
 /**
- * Get current cat status based on state machine logic
+ * Get current cat status based on state machine logic (keep-last approach)
  */
 function getCatStatus(events) {
     if (!events || events.length === 0) return { status: 'unknown', icon: '❓' };
@@ -246,14 +432,20 @@ function getCatStatus(events) {
     const validEvents = events.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
     const sorted = [...validEvents].sort((a, b) => a.timestamp - b.timestamp);
     
-    // Run state machine to determine current state
+    // Run state machine with "keep last" logic
     let catIsOutside = false;
+    let lastEffectiveExitTime = null;
+    let lastEffectiveEntryTime = null;
     
     for (const event of sorted) {
-        if (event.type === 2 && !catIsOutside) { // EXIT
+        if (event.type === 2) { // EXIT
+            // Always update - keep the last exit
             catIsOutside = true;
-        } else if (event.type === 1 && catIsOutside) { // ENTRY
+            lastEffectiveExitTime = event.timestamp;
+        } else if (event.type === 1) { // ENTRY
+            // Always update - keep the last entry
             catIsOutside = false;
+            lastEffectiveEntryTime = event.timestamp;
         }
     }
     
@@ -267,7 +459,20 @@ let visitsChartInstance = null;
 let durationChartInstance = null;
 let hourlyChartInstance = null;
 
-function renderVisitsChart(dataObj, period) {
+/**
+ * Convert locale date string to YYYY-MM-DD for weather API
+ */
+function localeDateToISO(localeDateStr) {
+    // Handle various locale formats
+    const date = new Date(localeDateStr);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString().split('T')[0];
+}
+
+/**
+ * Render visits chart with weather overlay
+ */
+async function renderVisitsChart(dataObj, period) {
     const canvas = document.getElementById('visitsChart');
     if (!canvas) return;
     
@@ -279,10 +484,27 @@ function renderVisitsChart(dataObj, period) {
 
     if (visitsChartInstance) visitsChartInstance.destroy();
 
+    // Fetch weather data for daily view
+    let weatherLabels = labels;
+    if (period === 'day' && WEATHER_CONFIG.enabled) {
+        const isoDates = labels.map(localeDateToISO).filter(d => d);
+        await fetchWeatherData(isoDates);
+        
+        // Add weather icons to labels
+        weatherLabels = labels.map(label => {
+            const isoDate = localeDateToISO(label);
+            const weather = cachedWeatherData[isoDate];
+            if (weather) {
+                return `${weather.icon} ${label}`;
+            }
+            return label;
+        });
+    }
+
     visitsChartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: weatherLabels,
             datasets: [{
                 label: labelText,
                 data: data,
@@ -295,17 +517,41 @@ function renderVisitsChart(dataObj, period) {
             maintainAspectRatio: false,
             scales: {
                 y: { beginAtZero: true, grid: { color: '#333' } },
-                x: { grid: { color: '#333' } }
+                x: { 
+                    grid: { color: '#333' },
+                    ticks: { 
+                        maxRotation: 45, 
+                        minRotation: 0,
+                        font: { size: 11 }
+                    }
+                }
             },
             plugins: { 
                 legend: { display: false },
-                title: { display: true, text: 'Completed Outings (EXIT→ENTRY pairs)', color: '#fff' } 
+                title: { display: true, text: 'Completed Outings (EXIT→ENTRY pairs)', color: '#fff' },
+                tooltip: {
+                    callbacks: {
+                        afterLabel: function(context) {
+                            if (period !== 'day') return '';
+                            const label = labels[context.dataIndex];
+                            const isoDate = localeDateToISO(label);
+                            const weather = cachedWeatherData[isoDate];
+                            if (weather) {
+                                return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                            }
+                            return '';
+                        }
+                    }
+                }
             }
         }
     });
 }
 
-function renderDurationChart(dataObj, period) {
+/**
+ * Render duration chart with weather overlay
+ */
+async function renderDurationChart(dataObj, period) {
     const canvas = document.getElementById('durationChart');
     if (!canvas) return;
     
@@ -317,10 +563,27 @@ function renderDurationChart(dataObj, period) {
 
     if (durationChartInstance) durationChartInstance.destroy();
 
+    // Fetch weather data for daily view
+    let weatherLabels = labels;
+    if (period === 'day' && WEATHER_CONFIG.enabled) {
+        const isoDates = labels.map(localeDateToISO).filter(d => d);
+        await fetchWeatherData(isoDates);
+        
+        // Add weather icons to labels
+        weatherLabels = labels.map(label => {
+            const isoDate = localeDateToISO(label);
+            const weather = cachedWeatherData[isoDate];
+            if (weather) {
+                return `${weather.icon} ${label}`;
+            }
+            return label;
+        });
+    }
+
     durationChartInstance = new Chart(ctx, {
         type: 'line', 
         data: {
-            labels: labels,
+            labels: weatherLabels,
             datasets: [{
                 label: labelText,
                 data: data,
@@ -335,11 +598,32 @@ function renderDurationChart(dataObj, period) {
             maintainAspectRatio: false,
             scales: {
                 y: { beginAtZero: true, grid: { color: '#333' } },
-                x: { grid: { color: '#333' } }
+                x: { 
+                    grid: { color: '#333' },
+                    ticks: { 
+                        maxRotation: 45, 
+                        minRotation: 0,
+                        font: { size: 11 }
+                    }
+                }
             },
             plugins: { 
                 legend: { display: false },
-                title: { display: true, text: 'Time Spent Outside (validated)', color: '#fff' } 
+                title: { display: true, text: 'Time Spent Outside (validated)', color: '#fff' },
+                tooltip: {
+                    callbacks: {
+                        afterLabel: function(context) {
+                            if (period !== 'day') return '';
+                            const label = labels[context.dataIndex];
+                            const isoDate = localeDateToISO(label);
+                            const weather = cachedWeatherData[isoDate];
+                            if (weather) {
+                                return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                            }
+                            return '';
+                        }
+                    }
+                }
             }
         }
     });

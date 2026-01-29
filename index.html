@@ -199,7 +199,7 @@
 <body>
 
 <div class="container">
-    <h1>CAT SENTRY v1.4</h1>
+    <h1>CAT SENTRY v1.5</h1>
     <div class="status" id="statusLine">System: DISCONNECTED</div>
     
     <!-- Quick Stats -->
@@ -227,6 +227,7 @@
         <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
         <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
         <button onclick="openSettings()" style="background-color: #333; color: #fff; border: 1px solid #00ff00;">☁️ GITHUB SYNC</button>
+        <button onclick="configureWeather()" style="background-color: #333; color: #fff; border: 1px solid #ffcc00;">🌤️ WEATHER</button>
         <button id="advancedBtn" onclick="openAdvancedMode()" style="background-color: #333; color: #888; border: 1px solid #666;">🔧 ADVANCED</button>
     </div>
 
@@ -432,19 +433,22 @@
         // Update stats bar
         document.getElementById('statRawEvents').textContent = eventHistory.length;
         
-        // Calculate stats using state machine
+        // Calculate stats using state machine with "keep last" logic
         const validHistory = eventHistory.filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
         const sorted = [...validHistory].sort((a, b) => a.timestamp - b.timestamp);
         
-        // Run state machine for stats
+        // Run state machine for stats (keep-last approach)
         let outings = 0;
         let totalMinutes = 0;
         let catIsOutside = false;
         let currentExitTime = null;
         
         for (const event of sorted) {
-            if (event.type === 2 && !catIsOutside) { // Valid EXIT
-                catIsOutside = true;
+            if (event.type === 2) { // EXIT - always update exit time
+                if (!catIsOutside) {
+                    catIsOutside = true;
+                }
+                // Keep updating exit time (last exit is the real one)
                 currentExitTime = event.timestamp;
             } else if (event.type === 1 && catIsOutside) { // Valid ENTRY
                 catIsOutside = false;
