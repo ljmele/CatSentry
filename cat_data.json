@@ -424,11 +424,31 @@
     "type": 2
   },
   {
+    "timestamp": 1769686046000,
+    "type": 2
+  },
+  {
+    "timestamp": 1769686489000,
+    "type": 1
+  },
+  {
     "timestamp": 1769686653003,
     "type": 2
   },
   {
     "timestamp": 1769686653152,
+    "type": 1
+  },
+  {
+    "timestamp": 1769702669000,
+    "type": 2
+  },
+  {
+    "timestamp": 1769702675000,
+    "type": 2
+  },
+  {
+    "timestamp": 1769702839000,
     "type": 1
   }
 ]
