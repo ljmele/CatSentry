@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Sentry Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="js/analytics.js?v=1.4"></script>
-    <script src="js/storage.js?v=1.4"></script>
+    <script src="js/analytics.js?v=1.6"></script>
+    <script src="js/storage.js?v=1.6"></script>
     <style>
         body { font-family: 'Courier New', monospace; background-color: #1a1a1a; color: #00ff00; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; }
@@ -199,7 +199,7 @@
 <body>
 
 <div class="container">
-    <h1>CAT SENTRY v1.5</h1>
+    <h1>CAT SENTRY v1.6</h1>
     <div class="status" id="statusLine">System: DISCONNECTED</div>
     
     <!-- Quick Stats -->
@@ -227,7 +227,6 @@
         <button id="connectBtn" onclick="connectToCat()">CONNECT TO DEVICE</button>
         <button onclick="downloadCSV()" style="background-color: #36a2eb; color: #fff;">DOWNLOAD CSV</button>
         <button onclick="openSettings()" style="background-color: #333; color: #fff; border: 1px solid #00ff00;">☁️ GITHUB SYNC</button>
-        <button onclick="configureWeather()" style="background-color: #333; color: #fff; border: 1px solid #ffcc00;">🌤️ WEATHER</button>
         <button id="advancedBtn" onclick="openAdvancedMode()" style="background-color: #333; color: #888; border: 1px solid #666;">🔧 ADVANCED</button>
     </div>
 
@@ -293,6 +292,21 @@
         </div>
         
         <p class="warning-text">⚠️ Deleting events cannot be undone. Use with caution.</p>
+        
+        <!-- Restore from CSV -->
+        <div style="background: #2a2a2a; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+            <h4 style="margin: 0 0 10px 0; color: #ffcc00;">📁 Restore from Backup</h4>
+            <p style="font-size: 12px; color: #888; margin: 0 0 10px 0;">
+                Upload a previously exported CSV file to restore your data. This will MERGE with existing data.
+            </p>
+            <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleCSVRestore(event)">
+            <button onclick="document.getElementById('csvFileInput').click()" style="background: #ffcc00; color: #000; padding: 8px 15px;">
+                📤 Import CSV Backup
+            </button>
+            <button onclick="replaceFromCSV()" style="background: #ff4444; color: #fff; padding: 8px 15px; margin-left: 10px;">
+                🔄 Replace All Data from CSV
+            </button>
+        </div>
         
         <div class="filter-controls">
             <label>Filter by type:
@@ -753,25 +767,22 @@
     let advancedModeUnlocked = false;
     
     function openAdvancedMode() {
-        // Security check: require BLE connection OR password
+        // Security check: require BOTH BLE connection AND GitHub configured
         if (!advancedModeUnlocked) {
-            if (device && device.gatt && device.gatt.connected) {
+            const bleConnected = device && device.gatt && device.gatt.connected;
+            const githubConfigured = ghStorage && ghStorage.isConfigured;
+            
+            if (bleConnected && githubConfigured) {
                 advancedModeUnlocked = true;
-                updateLog("Advanced Mode unlocked via BLE connection.");
+                updateLog("Advanced Mode unlocked (BLE + GitHub verified).");
             } else {
-                // Fallback: password protection
-                const password = prompt("Advanced Mode requires authentication.\n\nEither connect to the device via Bluetooth, or enter the admin password:");
-                if (password === null) return;
+                // Show what's missing
+                let missing = [];
+                if (!bleConnected) missing.push("Bluetooth connection");
+                if (!githubConfigured) missing.push("GitHub sync configured");
                 
-                // Simple password check (user should change this)
-                const storedPassword = localStorage.getItem('catSentryAdminPw') || 'catsentry';
-                if (password === storedPassword) {
-                    advancedModeUnlocked = true;
-                    updateLog("Advanced Mode unlocked via password.");
-                } else {
-                    alert("Incorrect password. Connect the device or try again.");
-                    return;
-                }
+                alert(`Advanced Mode requires:\n\n✓ Bluetooth device connected\n✓ GitHub sync configured\n\nMissing: ${missing.join(', ')}\n\nPlease connect your device and set up GitHub sync first.`);
+                return;
             }
         }
         
@@ -783,6 +794,138 @@
         document.getElementById('advancedModal').classList.remove('active');
     }
     
+    // --- CSV RESTORE ---
+    function parseCSV(csvText) {
+        const lines = csvText.trim().split('\n');
+        if (lines.length < 2) return [];
+        
+        // Skip header row
+        const events = [];
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line.trim()) continue;
+            
+            // Parse CSV - handle quoted fields
+            const match = line.match(/^(\d+),["']?([^"',]+)["']?,(\w+)/);
+            if (match) {
+                const timestamp = parseInt(match[1]);
+                const type = match[3].toUpperCase() === 'ENTRY' ? 1 : 2;
+                
+                if (timestamp >= MIN_VALID_TIMESTAMP && (type === 1 || type === 2)) {
+                    events.push({ timestamp, type });
+                }
+            }
+        }
+        
+        return events;
+    }
+    
+    function handleCSVRestore(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const csvText = e.target.result;
+            const importedEvents = parseCSV(csvText);
+            
+            if (importedEvents.length === 0) {
+                alert('No valid events found in the CSV file.');
+                return;
+            }
+            
+            // Merge with existing data (deduplicate)
+            const existingSet = new Set(eventHistory.map(e => `${e.timestamp}-${e.type}`));
+            let newCount = 0;
+            
+            for (const event of importedEvents) {
+                const key = `${event.timestamp}-${event.type}`;
+                if (!existingSet.has(key)) {
+                    eventHistory.push(event);
+                    existingSet.add(key);
+                    newCount++;
+                }
+            }
+            
+            if (newCount > 0) {
+                // Recalculate counts
+                entryCount = eventHistory.filter(e => e.type === 1).length;
+                exitCount = eventHistory.filter(e => e.type === 2).length;
+                
+                saveData();
+                updateUI();
+                renderHistoryTable();
+                
+                updateLog(`CSV import: Added ${newCount} new events (${importedEvents.length - newCount} duplicates skipped).`);
+                
+                // Sync to cloud
+                if (ghStorage && ghStorage.isConfigured) {
+                    ghStorage.pushData(eventHistory);
+                }
+                
+                alert(`Successfully imported ${newCount} new events!\n\n${importedEvents.length - newCount} duplicate events were skipped.`);
+            } else {
+                alert('All events in the CSV already exist in your database. Nothing was imported.');
+            }
+        };
+        
+        reader.readAsText(file);
+        event.target.value = ''; // Reset file input
+    }
+    
+    function replaceFromCSV() {
+        if (!confirm('⚠️ WARNING: This will DELETE ALL current data and replace it with the CSV file.\n\nAre you sure?')) {
+            return;
+        }
+        
+        // Trigger file picker
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
+        
+        input.onchange = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const csvText = e.target.result;
+                const importedEvents = parseCSV(csvText);
+                
+                if (importedEvents.length === 0) {
+                    alert('No valid events found in the CSV file. Data was NOT replaced.');
+                    return;
+                }
+                
+                if (!confirm(`Found ${importedEvents.length} events in the CSV.\n\nThis will REPLACE your current ${eventHistory.length} events.\n\nContinue?`)) {
+                    return;
+                }
+                
+                // Replace all data
+                eventHistory = importedEvents;
+                entryCount = eventHistory.filter(e => e.type === 1).length;
+                exitCount = eventHistory.filter(e => e.type === 2).length;
+                
+                saveData();
+                updateUI();
+                renderHistoryTable();
+                
+                updateLog(`CSV replace: Loaded ${importedEvents.length} events from backup.`);
+                
+                // Sync to cloud
+                if (ghStorage && ghStorage.isConfigured) {
+                    ghStorage.pushData(eventHistory);
+                }
+                
+                alert(`Data replaced successfully!\n\nLoaded ${importedEvents.length} events from CSV.`);
+            };
+            
+            reader.readAsText(file);
+        };
+        
+        input.click();
+    }
+
     function clearFilters() {
         document.getElementById('filterType').value = 'all';
         document.getElementById('filterDateFrom').value = '';

@@ -1,4 +1,4 @@
-// analytics.js - v1.5 with State Machine logic + Weather Integration
+// analytics.js - v1.6 with State Machine logic + Weather Integration (Udine, Italy)
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
@@ -14,29 +14,15 @@ const MAX_OUTING_DURATION_MS = 24 * 60 * 60 * 1000;
 // Minimum outing duration to consider valid (30 seconds)
 const MIN_OUTING_DURATION_MS = 30 * 1000;
 
-// Weather configuration - set your location coordinates
-// Default: London. Change to your location for accurate weather.
-let WEATHER_CONFIG = {
-    latitude: 51.5074,  // Change to your latitude
-    longitude: -0.1278, // Change to your longitude
+// Weather configuration - Fixed location: Udine, Italy
+const WEATHER_CONFIG = {
+    latitude: 46.0711,   // Udine, Italy
+    longitude: 13.2346,  // Udine, Italy
     enabled: true
 };
 
-// Load saved weather config
-(function loadWeatherConfig() {
-    const saved = localStorage.getItem('catSentryWeatherConfig');
-    if (saved) {
-        try {
-            WEATHER_CONFIG = { ...WEATHER_CONFIG, ...JSON.parse(saved) };
-        } catch (e) {}
-    }
-})();
-
-function saveWeatherConfig() {
-    localStorage.setItem('catSentryWeatherConfig', JSON.stringify(WEATHER_CONFIG));
-}
-
-// Weather code to emoji mapping (WMO codes)
+// Weather code to emoji mapping (WMO codes from Open-Meteo)
+// These are standard World Meteorological Organization codes
 const WEATHER_ICONS = {
     0: '☀️',   // Clear sky
     1: '🌤️',   // Mainly clear
@@ -47,9 +33,13 @@ const WEATHER_ICONS = {
     51: '🌧️',  // Light drizzle
     53: '🌧️',  // Moderate drizzle
     55: '🌧️',  // Dense drizzle
+    56: '🌧️',  // Freezing drizzle light
+    57: '🌧️',  // Freezing drizzle dense
     61: '🌧️',  // Slight rain
     63: '🌧️',  // Moderate rain
     65: '🌧️',  // Heavy rain
+    66: '🌧️',  // Freezing rain light
+    67: '🌧️',  // Freezing rain heavy
     71: '🌨️',  // Slight snow
     73: '🌨️',  // Moderate snow
     75: '🌨️',  // Heavy snow
@@ -64,12 +54,73 @@ const WEATHER_ICONS = {
     99: '⛈️'   // Thunderstorm with heavy hail
 };
 
+// Weather severity ranking (for aggregation - used for averaging)
+const WEATHER_SEVERITY = {
+    0: 0,   // Clear - best
+    1: 1,   // Mainly clear
+    2: 2,   // Partly cloudy
+    3: 3,   // Overcast
+    45: 4,  // Fog
+    48: 4,  // Fog
+    51: 5,  // Drizzle
+    53: 5, 55: 5, 56: 5, 57: 5,
+    61: 6,  // Rain
+    63: 7, 65: 8, 66: 7, 67: 8,
+    71: 6,  // Snow
+    73: 7, 75: 8, 77: 6,
+    80: 6,  // Showers
+    81: 7, 82: 9,
+    85: 7, 86: 8,
+    95: 9,  // Thunderstorm
+    96: 10, 99: 10
+};
+
+// Reverse mapping: severity score → representative weather code
+const SEVERITY_TO_CODE = {
+    0: 0,   // Clear
+    1: 1,   // Mainly clear
+    2: 2,   // Partly cloudy
+    3: 3,   // Overcast
+    4: 45,  // Fog
+    5: 51,  // Drizzle
+    6: 61,  // Light rain
+    7: 63,  // Moderate rain
+    8: 65,  // Heavy rain
+    9: 95,  // Thunderstorm
+    10: 96  // Severe thunderstorm
+};
+
 function getWeatherIcon(code) {
     return WEATHER_ICONS[code] || '❓';
 }
 
 /**
- * Fetch historical weather data from Open-Meteo (free, no API key)
+ * Get AVERAGE weather for a set of weather codes
+ * Uses average severity score, rounded to nearest weather type
+ * This is fair: 5 sunny + 2 rainy = mostly sunny, not rainy
+ */
+function getAverageWeather(weatherCodes) {
+    if (!weatherCodes || weatherCodes.length === 0) return null;
+    
+    // Calculate average severity
+    let totalSeverity = 0;
+    for (const code of weatherCodes) {
+        totalSeverity += WEATHER_SEVERITY[code] ?? 0;
+    }
+    
+    const avgSeverity = Math.round(totalSeverity / weatherCodes.length);
+    
+    // Map back to a weather code
+    return SEVERITY_TO_CODE[avgSeverity] ?? 0;
+}
+
+/**
+ * Fetch historical weather data from Open-Meteo (free, no API key required)
+ * 
+ * Open-Meteo uses:
+ * - ERA5 reanalysis data (ECMWF) for historical data (very accurate)
+ * - ICON, GFS, and other models for recent/forecast data
+ * 
  * @param {string[]} dates - Array of date strings in YYYY-MM-DD format
  */
 async function fetchWeatherData(dates) {
@@ -94,13 +145,15 @@ async function fetchWeatherData(dates) {
     if (startDate > today) return cachedWeatherData;
     
     try {
+        // Use Open-Meteo Historical Weather API
+        // Documentation: https://open-meteo.com/en/docs/historical-weather-api
         const url = `https://archive-api.open-meteo.com/v1/archive?` +
             `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
             `&start_date=${startDate}&end_date=${adjustedEndDate}` +
-            `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
-            `&timezone=auto`;
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
+            `&timezone=Europe/Rome`;  // Udine timezone
         
-        console.log('Fetching weather data:', url);
+        console.log('Fetching weather data for Udine:', url);
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -116,7 +169,8 @@ async function fetchWeatherData(dates) {
                     code: data.daily.weather_code[idx],
                     icon: getWeatherIcon(data.daily.weather_code[idx]),
                     tempMax: Math.round(data.daily.temperature_2m_max[idx]),
-                    tempMin: Math.round(data.daily.temperature_2m_min[idx])
+                    tempMin: Math.round(data.daily.temperature_2m_min[idx]),
+                    precipitation: data.daily.precipitation_sum[idx] || 0
                 };
             });
         }
@@ -191,32 +245,8 @@ function refreshTimeCharts() {
 }
 
 /**
- * Configure weather location
- */
-function configureWeather() {
-    const lat = prompt('Enter your latitude (e.g., 51.5074 for London):', WEATHER_CONFIG.latitude);
-    if (lat === null) return;
-    
-    const lon = prompt('Enter your longitude (e.g., -0.1278 for London):', WEATHER_CONFIG.longitude);
-    if (lon === null) return;
-    
-    const enabled = confirm('Enable weather display on charts?');
-    
-    WEATHER_CONFIG.latitude = parseFloat(lat) || 51.5074;
-    WEATHER_CONFIG.longitude = parseFloat(lon) || -0.1278;
-    WEATHER_CONFIG.enabled = enabled;
-    
-    saveWeatherConfig();
-    
-    // Clear cache and refresh
-    cachedWeatherData = {};
-    refreshTimeCharts();
-    
-    console.log('Weather config saved:', WEATHER_CONFIG);
-}
-
-/**
  * Aggregates daily data into weeks or months
+ * Also tracks which dates belong to each aggregated period (for weather)
  */
 function aggregateData(dailyData, period) {
     if (period === 'day') return dailyData;
@@ -240,6 +270,48 @@ function aggregateData(dailyData, period) {
         }
 
         aggregated[key] = (aggregated[key] || 0) + dailyData[dateStr];
+    });
+
+    return aggregated;
+}
+
+/**
+ * Aggregates daily dates into weeks or months for weather lookup
+ */
+function aggregateDatesForWeather(dailyData, period) {
+    if (period === 'day') {
+        // Return map of label -> [single ISO date]
+        const result = {};
+        Object.keys(dailyData).forEach(dateStr => {
+            const isoDate = localeDateToISO(dateStr);
+            if (isoDate) result[dateStr] = [isoDate];
+        });
+        return result;
+    }
+
+    const aggregated = {};
+    
+    Object.keys(dailyData).forEach(dateStr => {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return;
+        
+        const isoDate = localeDateToISO(dateStr);
+        if (!isoDate) return;
+        
+        let key = '';
+
+        if (period === 'week') {
+            const startOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDays = (date - startOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDays + startOfYear.getDay() + 1) / 7);
+            key = `W${weekNum} ${date.getFullYear()}`;
+        } else if (period === 'month') {
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            key = `${months[date.getMonth()]} ${date.getFullYear()}`;
+        }
+
+        if (!aggregated[key]) aggregated[key] = [];
+        aggregated[key].push(isoDate);
     });
 
     return aggregated;
@@ -470,6 +542,37 @@ function localeDateToISO(localeDateStr) {
 }
 
 /**
+ * Get aggregated weather info for a period (week/month)
+ * Returns AVERAGE weather icon and average temps (fair representation)
+ */
+function getAggregatedWeather(isoDates) {
+    if (!isoDates || isoDates.length === 0) return null;
+    
+    const weatherCodes = [];
+    let tempMaxSum = 0, tempMinSum = 0, count = 0;
+    
+    for (const date of isoDates) {
+        const weather = cachedWeatherData[date];
+        if (weather) {
+            weatherCodes.push(weather.code);
+            tempMaxSum += weather.tempMax;
+            tempMinSum += weather.tempMin;
+            count++;
+        }
+    }
+    
+    if (count === 0) return null;
+    
+    const avgCode = getAverageWeather(weatherCodes);
+    return {
+        icon: getWeatherIcon(avgCode),
+        tempMax: Math.round(tempMaxSum / count),
+        tempMin: Math.round(tempMinSum / count),
+        daysWithData: count
+    };
+}
+
+/**
  * Render visits chart with weather overlay
  */
 async function renderVisitsChart(dataObj, period) {
@@ -484,18 +587,37 @@ async function renderVisitsChart(dataObj, period) {
 
     if (visitsChartInstance) visitsChartInstance.destroy();
 
-    // Fetch weather data for daily view
+    // Get date mapping for weather
+    const dateMapping = aggregateDatesForWeather(cachedDailyCounts, period);
+    
+    // Collect all dates we need weather for
+    const allDates = Object.values(dateMapping).flat();
+    if (WEATHER_CONFIG.enabled && allDates.length > 0) {
+        await fetchWeatherData(allDates);
+    }
+    
+    // Build weather labels
     let weatherLabels = labels;
-    if (period === 'day' && WEATHER_CONFIG.enabled) {
-        const isoDates = labels.map(localeDateToISO).filter(d => d);
-        await fetchWeatherData(isoDates);
-        
-        // Add weather icons to labels
+    const weatherInfo = {}; // Store for tooltips
+    
+    if (WEATHER_CONFIG.enabled) {
         weatherLabels = labels.map(label => {
-            const isoDate = localeDateToISO(label);
-            const weather = cachedWeatherData[isoDate];
-            if (weather) {
-                return `${weather.icon} ${label}`;
+            const dates = dateMapping[label];
+            if (!dates) return label;
+            
+            if (period === 'day') {
+                const weather = cachedWeatherData[dates[0]];
+                if (weather) {
+                    weatherInfo[label] = weather;
+                    return `${weather.icon} ${label}`;
+                }
+            } else {
+                // Week or month - aggregate weather
+                const aggWeather = getAggregatedWeather(dates);
+                if (aggWeather) {
+                    weatherInfo[label] = aggWeather;
+                    return `${aggWeather.icon} ${label}`;
+                }
             }
             return label;
         });
@@ -532,12 +654,14 @@ async function renderVisitsChart(dataObj, period) {
                 tooltip: {
                     callbacks: {
                         afterLabel: function(context) {
-                            if (period !== 'day') return '';
                             const label = labels[context.dataIndex];
-                            const isoDate = localeDateToISO(label);
-                            const weather = cachedWeatherData[isoDate];
+                            const weather = weatherInfo[label];
                             if (weather) {
-                                return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                                if (period === 'day') {
+                                    return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                                } else {
+                                    return `Avg weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C (${weather.daysWithData} days)`;
+                                }
                             }
                             return '';
                         }
@@ -563,18 +687,37 @@ async function renderDurationChart(dataObj, period) {
 
     if (durationChartInstance) durationChartInstance.destroy();
 
-    // Fetch weather data for daily view
+    // Get date mapping for weather
+    const dateMapping = aggregateDatesForWeather(cachedDailyDurations, period);
+    
+    // Collect all dates we need weather for
+    const allDates = Object.values(dateMapping).flat();
+    if (WEATHER_CONFIG.enabled && allDates.length > 0) {
+        await fetchWeatherData(allDates);
+    }
+    
+    // Build weather labels
     let weatherLabels = labels;
-    if (period === 'day' && WEATHER_CONFIG.enabled) {
-        const isoDates = labels.map(localeDateToISO).filter(d => d);
-        await fetchWeatherData(isoDates);
-        
-        // Add weather icons to labels
+    const weatherInfo = {}; // Store for tooltips
+    
+    if (WEATHER_CONFIG.enabled) {
         weatherLabels = labels.map(label => {
-            const isoDate = localeDateToISO(label);
-            const weather = cachedWeatherData[isoDate];
-            if (weather) {
-                return `${weather.icon} ${label}`;
+            const dates = dateMapping[label];
+            if (!dates) return label;
+            
+            if (period === 'day') {
+                const weather = cachedWeatherData[dates[0]];
+                if (weather) {
+                    weatherInfo[label] = weather;
+                    return `${weather.icon} ${label}`;
+                }
+            } else {
+                // Week or month - aggregate weather
+                const aggWeather = getAggregatedWeather(dates);
+                if (aggWeather) {
+                    weatherInfo[label] = aggWeather;
+                    return `${aggWeather.icon} ${label}`;
+                }
             }
             return label;
         });
@@ -613,12 +756,14 @@ async function renderDurationChart(dataObj, period) {
                 tooltip: {
                     callbacks: {
                         afterLabel: function(context) {
-                            if (period !== 'day') return '';
                             const label = labels[context.dataIndex];
-                            const isoDate = localeDateToISO(label);
-                            const weather = cachedWeatherData[isoDate];
+                            const weather = weatherInfo[label];
                             if (weather) {
-                                return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                                if (period === 'day') {
+                                    return `Weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C`;
+                                } else {
+                                    return `Avg weather: ${weather.icon} ${weather.tempMin}°C - ${weather.tempMax}°C (${weather.daysWithData} days)`;
+                                }
                             }
                             return '';
                         }
