@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Sentry Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="js/analytics.js?v=1.6"></script>
-    <script src="js/storage.js?v=1.6"></script>
+    <script src="js/analytics.js?v=1.7"></script>
+    <script src="js/storage.js?v=1.7"></script>
     <style>
         body { font-family: 'Courier New', monospace; background-color: #1a1a1a; color: #00ff00; padding: 20px; }
         .container { max-width: 1000px; margin: 0 auto; }
@@ -199,7 +199,7 @@
 <body>
 
 <div class="container">
-    <h1>CAT SENTRY v1.6</h1>
+    <h1>CAT SENTRY v1.7</h1>
     <div class="status" id="statusLine">System: DISCONNECTED</div>
     
     <!-- Quick Stats -->
@@ -278,6 +278,22 @@
         <div class="card">
             <h3>Preferred Hours</h3>
             <canvas id="hourlyChart" style="max-height: 250px;"></canvas>
+        </div>
+
+        <!-- Weather Correlation (Full Width) -->
+        <div class="card full-width" style="height: 320px;">
+            <h3>Weather vs Time Outside</h3>
+            <div style="height: 250px; position: relative;">
+                <canvas id="weatherCorrelationChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Outing Patterns & Insights (Full Width) -->
+        <div class="card full-width">
+            <h3>🐱 Outing Patterns & Insights</h3>
+            <div id="insightsPanel" style="color: #ccc; font-size: 14px;">
+                <p style="color: #666; font-style: italic;">Collecting data...</p>
+            </div>
         </div>
     </div>
     

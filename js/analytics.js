@@ -1,4 +1,4 @@
-// analytics.js - v1.6 with State Machine logic + Weather Integration (Udine, Italy)
+// analytics.js - v1.7 with State Machine logic + Weather Integration + Insights (Udine, Italy)
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
@@ -202,7 +202,7 @@ function updateAnalytics(history) {
     const sorted = [...validHistory].sort((a, b) => a.timestamp - b.timestamp);
 
     // 1. Process base data using State Machine (Daily resolution)
-    const { dailyCounts, dailyDurations, hourlyActivity, stats, processedEvents } = processDataWithStateMachine(sorted);
+    const { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents } = processDataWithStateMachine(sorted);
     
     // Log stats for debugging
     console.log("Analytics Stats:", stats);
@@ -214,8 +214,10 @@ function updateAnalytics(history) {
     // Store processed events globally for the Recent Events display
     window.lastProcessedEvents = processedEvents;
 
-    // 2. Render Activity Radar
-    renderHourlyChart(hourlyActivity);
+    // 2. Render Preferred Hours (time-based) + Weather Correlation + Insights
+    renderHourlyChart(hourlyDuration);
+    renderWeatherCorrelationChart(cachedDailyDurations);
+    renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, stats);
 
     // 3. Render Aggregated Charts
     refreshTimeCharts();
@@ -342,6 +344,7 @@ function processDataWithStateMachine(events) {
     const dailyCounts = {};      // Counts VALID outings (EXIT→ENTRY pairs)
     const dailyDurations = {};   // Duration in minutes
     const hourlyActivity = new Array(24).fill(0); // All events for activity pattern
+    const hourlyDuration = new Array(24).fill(0);  // Minutes outside per hour (for Preferred Hours chart)
     
     // Processed events with their effective status
     const processedEvents = [];
@@ -435,6 +438,20 @@ function processDataWithStateMachine(events) {
                     dailyCounts[currentOuting.exitDateKey] = (dailyCounts[currentOuting.exitDateKey] || 0) + 1;
                     dailyDurations[currentOuting.exitDateKey] = (dailyDurations[currentOuting.exitDateKey] || 0) + minutes;
                     
+                    // Distribute time across hours for the Preferred Hours chart
+                    const exitDate = new Date(currentOuting.exitTimestamp);
+                    const entryDate = new Date(event.timestamp);
+                    let cursor = new Date(exitDate);
+                    while (cursor < entryDate) {
+                        const hour = cursor.getHours();
+                        const nextHour = new Date(cursor);
+                        nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+                        const sliceEnd = entryDate < nextHour ? entryDate : nextHour;
+                        const sliceMinutes = (sliceEnd - cursor) / 1000 / 60;
+                        hourlyDuration[hour] += sliceMinutes;
+                        cursor = nextHour;
+                    }
+                    
                     stats.completedOutings++;
                     stats.totalTimeOutsideMinutes += minutes;
                     
@@ -492,7 +509,7 @@ function processDataWithStateMachine(events) {
         }
     });
 
-    return { dailyCounts, dailyDurations, hourlyActivity, stats, processedEvents };
+    return { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents };
 }
 
 /**
@@ -530,6 +547,7 @@ function getCatStatus(events) {
 let visitsChartInstance = null;
 let durationChartInstance = null;
 let hourlyChartInstance = null;
+let weatherCorrelationInstance = null;
 
 /**
  * Convert locale date string to YYYY-MM-DD for weather API
@@ -780,6 +798,7 @@ function renderHourlyChart(dataArray) {
     
     const ctx = canvas.getContext('2d');
     const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
+    const rounded = dataArray.map(v => Math.round(v * 10) / 10);
     
     if (hourlyChartInstance) hourlyChartInstance.destroy();
 
@@ -788,8 +807,8 @@ function renderHourlyChart(dataArray) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Activity',
-                data: dataArray,
+                label: 'Minutes Outside',
+                data: rounded,
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 borderColor: 'rgba(75, 192, 192, 1)',
                 borderWidth: 2,
@@ -808,9 +827,289 @@ function renderHourlyChart(dataArray) {
                 }
             },
             plugins: { 
-                title: { display: true, text: 'Activity by Hour (all events)', color: '#fff' },
-                legend: { display: false }
+                title: { display: true, text: 'Time Outside by Hour (minutes)', color: '#fff' },
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.raw} min outside`;
+                        }
+                    }
+                }
             }
         }
     });
+}
+
+/**
+ * Render Weather Correlation scatter chart
+ * X-axis: Average temperature (°C), Y-axis: Total minutes outside that day
+ */
+async function renderWeatherCorrelationChart(dailyDurations) {
+    const canvas = document.getElementById('weatherCorrelationChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (weatherCorrelationInstance) weatherCorrelationInstance.destroy();
+
+    // Collect all dates with outing data
+    const dates = Object.keys(dailyDurations).filter(d => dailyDurations[d] > 0);
+    const isoDates = dates.map(d => localeDateToISO(d)).filter(Boolean);
+
+    if (isoDates.length === 0) {
+        // No data yet
+        weatherCorrelationInstance = new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets: [] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: { display: true, text: 'Need more data...', color: '#666' }
+                }
+            }
+        });
+        return;
+    }
+
+    // Fetch weather for all relevant dates
+    if (WEATHER_CONFIG.enabled) {
+        await fetchWeatherData(isoDates);
+    }
+
+    // Build scatter data points
+    const dataPoints = [];
+    dates.forEach(dateStr => {
+        const isoDate = localeDateToISO(dateStr);
+        if (!isoDate || !cachedWeatherData[isoDate]) return;
+
+        const weather = cachedWeatherData[isoDate];
+        const avgTemp = Math.round(((weather.tempMax + weather.tempMin) / 2) * 10) / 10;
+        const duration = Math.round(dailyDurations[dateStr]);
+
+        if (duration > 0) {
+            dataPoints.push({
+                x: avgTemp,
+                y: duration,
+                label: dateStr,
+                weather: weather
+            });
+        }
+    });
+
+    if (dataPoints.length === 0) {
+        weatherCorrelationInstance = new Chart(ctx, {
+            type: 'scatter',
+            data: { datasets: [] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: { display: true, text: 'No weather data available yet', color: '#666' }
+                }
+            }
+        });
+        return;
+    }
+
+    // Color points by weather severity
+    const backgroundColors = dataPoints.map(p => {
+        const severity = WEATHER_SEVERITY[p.weather.code] ?? 0;
+        if (severity <= 1) return 'rgba(255, 206, 86, 0.8)';    // Sunny - yellow
+        if (severity <= 3) return 'rgba(201, 203, 207, 0.8)';    // Cloudy - gray
+        if (severity <= 5) return 'rgba(54, 162, 235, 0.8)';     // Drizzle - blue
+        return 'rgba(255, 99, 132, 0.8)';                        // Rain/Storm - red
+    });
+
+    weatherCorrelationInstance = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            datasets: [{
+                label: 'Daily Outings',
+                data: dataPoints,
+                backgroundColor: backgroundColors,
+                borderColor: backgroundColors.map(c => c.replace('0.8', '1')),
+                pointRadius: 7,
+                pointHoverRadius: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    title: { display: true, text: 'Avg Temperature (°C)', color: '#888' },
+                    grid: { color: '#333' },
+                    ticks: { color: '#888' }
+                },
+                y: {
+                    title: { display: true, text: 'Minutes Outside', color: '#888' },
+                    beginAtZero: true,
+                    grid: { color: '#333' },
+                    ticks: { color: '#888' }
+                }
+            },
+            plugins: {
+                title: { display: true, text: 'Weather vs Time Outside', color: '#fff' },
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const point = context.raw;
+                            return [
+                                `${point.label}`,
+                                `${point.weather.icon} ${point.x}°C avg`,
+                                `${point.y} min outside`
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Generate and render outing patterns & insights panel
+ */
+function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, stats) {
+    const panel = document.getElementById('insightsPanel');
+    if (!panel) return;
+
+    const insights = [];
+
+    // 1. Average outing duration
+    if (stats.completedOutings > 0) {
+        const avgMin = Math.round(stats.totalTimeOutsideMinutes / stats.completedOutings);
+        const hours = Math.floor(avgMin / 60);
+        const mins = avgMin % 60;
+        const formatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        insights.push({
+            icon: '⏱️',
+            text: `Average outing duration: <strong>${formatted}</strong>`,
+            detail: `${stats.completedOutings} completed outings`
+        });
+    }
+
+    // 2. Most active hour (from time-based data)
+    if (hourlyDuration) {
+        let maxHour = -1, maxMinutes = 0;
+        hourlyDuration.forEach((min, hour) => {
+            if (min > maxMinutes) {
+                maxMinutes = min;
+                maxHour = hour;
+            }
+        });
+        if (maxHour >= 0 && maxMinutes > 0) {
+            const endHour = (maxHour + 1) % 24;
+            insights.push({
+                icon: '🕐',
+                text: `Favorite time: <strong>${maxHour}:00–${endHour}:00</strong>`,
+                detail: `${Math.round(maxMinutes)} total minutes in this hour`
+            });
+        }
+    }
+
+    // 3. Weekday vs Weekend
+    const weekdayData = { count: 0, minutes: 0, days: 0 };
+    const weekendData = { count: 0, minutes: 0, days: 0 };
+    Object.keys(dailyCounts).forEach(dateStr => {
+        const date = new Date(dateStr);
+        const day = date.getDay();
+        const isWeekend = (day === 0 || day === 6);
+        const target = isWeekend ? weekendData : weekdayData;
+        target.count += dailyCounts[dateStr] || 0;
+        target.minutes += dailyDurations[dateStr] || 0;
+        target.days++;
+    });
+
+    if (weekdayData.days > 0 && weekendData.days > 0) {
+        const weekdayAvg = Math.round(weekdayData.minutes / weekdayData.days);
+        const weekendAvg = Math.round(weekendData.minutes / weekendData.days);
+        const diff = Math.abs(weekendAvg - weekdayAvg);
+
+        if (diff > 5) { // Only show if meaningful difference
+            if (weekendAvg > weekdayAvg) {
+                insights.push({
+                    icon: '📅',
+                    text: `Weekend warrior: <strong>${weekendAvg} min/day</strong> on weekends`,
+                    detail: `vs ${weekdayAvg} min/day on weekdays (+${Math.round((weekendAvg/weekdayAvg - 1) * 100)}%)`
+                });
+            } else {
+                insights.push({
+                    icon: '📅',
+                    text: `Weekday explorer: <strong>${weekdayAvg} min/day</strong> on weekdays`,
+                    detail: `vs ${weekendAvg} min/day on weekends (+${Math.round((weekdayAvg/weekendAvg - 1) * 100)}%)`
+                });
+            }
+        } else {
+            insights.push({
+                icon: '📅',
+                text: `Consistent routine: ~<strong>${weekdayAvg} min/day</strong>`,
+                detail: `Similar activity on weekdays and weekends`
+            });
+        }
+    }
+
+    // 4. Record day (longest total outside time in a single day)
+    let longestDay = 0, longestDayDate = '';
+    Object.keys(dailyDurations).forEach(dateStr => {
+        if (dailyDurations[dateStr] > longestDay) {
+            longestDay = dailyDurations[dateStr];
+            longestDayDate = dateStr;
+        }
+    });
+    if (longestDay > 0) {
+        const hours = Math.floor(longestDay / 60);
+        const mins = Math.round(longestDay % 60);
+        const formatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        insights.push({
+            icon: '🏆',
+            text: `Record day: <strong>${formatted}</strong> outside`,
+            detail: `on ${longestDayDate}`
+        });
+    }
+
+    // 5. Most outings in a day
+    let maxOutingsDay = 0, maxOutingsDayDate = '';
+    Object.keys(dailyCounts).forEach(dateStr => {
+        if (dailyCounts[dateStr] > maxOutingsDay) {
+            maxOutingsDay = dailyCounts[dateStr];
+            maxOutingsDayDate = dateStr;
+        }
+    });
+    if (maxOutingsDay > 1) {
+        insights.push({
+            icon: '🚪',
+            text: `Busiest day: <strong>${maxOutingsDay} outings</strong>`,
+            detail: `on ${maxOutingsDayDate}`
+        });
+    }
+
+    // 6. Active days count
+    const activeDays = Object.keys(dailyCounts).length;
+    if (activeDays > 0) {
+        const avgPerDay = Math.round(stats.totalTimeOutsideMinutes / activeDays);
+        insights.push({
+            icon: '📊',
+            text: `<strong>${activeDays}</strong> active days recorded`,
+            detail: `Avg ${avgPerDay} min/day outside`
+        });
+    }
+
+    // Render
+    if (insights.length === 0) {
+        panel.innerHTML = '<p style="color: #666; font-style: italic;">Not enough data for insights yet. Keep tracking!</p>';
+        return;
+    }
+
+    panel.innerHTML = insights.map(insight => `
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid #333;">
+            <span style="font-size: 20px; min-width: 28px;">${insight.icon}</span>
+            <div>
+                <div style="color: #ddd; font-size: 14px;">${insight.text}</div>
+                <div style="color: #666; font-size: 12px; margin-top: 2px;">${insight.detail}</div>
+            </div>
+        </div>
+    `).join('');
 }
