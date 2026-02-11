@@ -1306,5 +1306,89 @@
   {
     "timestamp": 1770662804000,
     "type": 1
+  },
+  {
+    "timestamp": 1770665375000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770665928000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770670582000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770671200000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770706159000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770706494000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770706853000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770707522000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770723213000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770723743000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770724473000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770724895000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770748607000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770748771000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770750721000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770753925000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770755091000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770756534000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770794327000,
+    "type": 1
+  },
+  {
+    "timestamp": 1770795241000,
+    "type": 2
+  },
+  {
+    "timestamp": 1770795492000,
+    "type": 1
   }
 ]
