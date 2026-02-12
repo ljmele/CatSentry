@@ -812,7 +812,9 @@ function renderHourlyChart(dataArray) {
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 borderColor: 'rgba(75, 192, 192, 1)',
                 borderWidth: 2,
-                pointBackgroundColor: '#fff'
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointBackgroundColor: 'rgba(75, 192, 192, 1)'
             }]
         },
         options: {
@@ -912,27 +914,37 @@ async function renderWeatherCorrelationChart(dailyDurations) {
         return;
     }
 
-    // Color points by weather severity
-    const backgroundColors = dataPoints.map(p => {
+    // Group data points by weather category for separate datasets (legend)
+    const categories = {
+        'Sunny': { color: 'rgba(255, 206, 86, 0.7)', border: 'rgba(255, 206, 86, 1)', points: [] },
+        'Cloudy': { color: 'rgba(201, 203, 207, 0.7)', border: 'rgba(201, 203, 207, 1)', points: [] },
+        'Drizzle': { color: 'rgba(54, 162, 235, 0.7)', border: 'rgba(54, 162, 235, 1)', points: [] },
+        'Rain/Storm': { color: 'rgba(255, 99, 132, 0.7)', border: 'rgba(255, 99, 132, 1)', points: [] }
+    };
+
+    dataPoints.forEach(p => {
         const severity = WEATHER_SEVERITY[p.weather.code] ?? 0;
-        if (severity <= 1) return 'rgba(255, 206, 86, 0.8)';    // Sunny - yellow
-        if (severity <= 3) return 'rgba(201, 203, 207, 0.8)';    // Cloudy - gray
-        if (severity <= 5) return 'rgba(54, 162, 235, 0.8)';     // Drizzle - blue
-        return 'rgba(255, 99, 132, 0.8)';                        // Rain/Storm - red
+        if (severity <= 1) categories['Sunny'].points.push(p);
+        else if (severity <= 3) categories['Cloudy'].points.push(p);
+        else if (severity <= 5) categories['Drizzle'].points.push(p);
+        else categories['Rain/Storm'].points.push(p);
     });
+
+    const datasets = Object.entries(categories)
+        .filter(([_, cat]) => cat.points.length > 0)
+        .map(([name, cat]) => ({
+            label: `${name} (${cat.points.length})`,
+            data: cat.points,
+            backgroundColor: cat.color,
+            borderColor: cat.border,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 1
+        }));
 
     weatherCorrelationInstance = new Chart(ctx, {
         type: 'scatter',
-        data: {
-            datasets: [{
-                label: 'Daily Outings',
-                data: dataPoints,
-                backgroundColor: backgroundColors,
-                borderColor: backgroundColors.map(c => c.replace('0.8', '1')),
-                pointRadius: 7,
-                pointHoverRadius: 10
-            }]
-        },
+        data: { datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -951,7 +963,11 @@ async function renderWeatherCorrelationChart(dailyDurations) {
             },
             plugins: {
                 title: { display: true, text: 'Weather vs Time Outside', color: '#fff' },
-                legend: { display: false },
+                legend: { 
+                    display: true, 
+                    position: 'top',
+                    labels: { color: '#aaa', usePointStyle: true, pointStyle: 'circle', padding: 15 }
+                },
                 tooltip: {
                     callbacks: {
                         label: function(context) {
@@ -970,131 +986,160 @@ async function renderWeatherCorrelationChart(dailyDurations) {
 }
 
 /**
- * Generate and render outing patterns & insights panel
+ * Generate and render fun insights panel with weather correlation
  */
-function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, stats) {
+async function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, stats) {
     const panel = document.getElementById('insightsPanel');
     if (!panel) return;
 
-    const insights = [];
-
-    // 1. Average outing duration
-    if (stats.completedOutings > 0) {
-        const avgMin = Math.round(stats.totalTimeOutsideMinutes / stats.completedOutings);
-        const hours = Math.floor(avgMin / 60);
-        const mins = avgMin % 60;
-        const formatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-        insights.push({
-            icon: '⏱️',
-            text: `Average outing duration: <strong>${formatted}</strong>`,
-            detail: `${stats.completedOutings} completed outings`
-        });
+    // Ensure weather data is loaded for all dates with durations
+    const dates = Object.keys(dailyDurations);
+    const isoDates = dates.map(d => localeDateToISO(d)).filter(Boolean);
+    if (WEATHER_CONFIG.enabled && isoDates.length > 0) {
+        await fetchWeatherData(isoDates);
     }
 
-    // 2. Most active hour (from time-based data)
+    const insights = [];
+
+    // 1. Favorite time of day (from time-based data)
     if (hourlyDuration) {
         let maxHour = -1, maxMinutes = 0;
         hourlyDuration.forEach((min, hour) => {
-            if (min > maxMinutes) {
-                maxMinutes = min;
-                maxHour = hour;
-            }
+            if (min > maxMinutes) { maxMinutes = min; maxHour = hour; }
         });
         if (maxHour >= 0 && maxMinutes > 0) {
             const endHour = (maxHour + 1) % 24;
+            const period = maxHour < 6 ? 'night owl' : maxHour < 12 ? 'morning cat' : maxHour < 17 ? 'afternoon adventurer' : 'evening prowler';
             insights.push({
-                icon: '🕐',
-                text: `Favorite time: <strong>${maxHour}:00–${endHour}:00</strong>`,
-                detail: `${Math.round(maxMinutes)} total minutes in this hour`
+                icon: maxHour < 6 ? '🌙' : maxHour < 12 ? '🌅' : maxHour < 17 ? '☀️' : '🌆',
+                text: `Your cat is a <strong>${period}</strong>`,
+                detail: `Peak activity: ${maxHour}:00–${endHour}:00 (${Math.round(maxMinutes)} min total)`
             });
         }
     }
 
-    // 3. Weekday vs Weekend
-    const weekdayData = { count: 0, minutes: 0, days: 0 };
-    const weekendData = { count: 0, minutes: 0, days: 0 };
-    Object.keys(dailyCounts).forEach(dateStr => {
-        const date = new Date(dateStr);
-        const day = date.getDay();
-        const isWeekend = (day === 0 || day === 6);
-        const target = isWeekend ? weekendData : weekdayData;
-        target.count += dailyCounts[dateStr] || 0;
-        target.minutes += dailyDurations[dateStr] || 0;
-        target.days++;
+    // 2. Weather preference - compare avg time outside by weather type
+    const weatherGroups = { sunny: { min: 0, days: 0 }, cloudy: { min: 0, days: 0 }, rainy: { min: 0, days: 0 } };
+    dates.forEach(dateStr => {
+        const isoDate = localeDateToISO(dateStr);
+        if (!isoDate || !cachedWeatherData[isoDate]) return;
+        const severity = WEATHER_SEVERITY[cachedWeatherData[isoDate].code] ?? 0;
+        const minutes = dailyDurations[dateStr] || 0;
+        if (severity <= 2) { weatherGroups.sunny.min += minutes; weatherGroups.sunny.days++; }
+        else if (severity <= 4) { weatherGroups.cloudy.min += minutes; weatherGroups.cloudy.days++; }
+        else { weatherGroups.rainy.min += minutes; weatherGroups.rainy.days++; }
     });
 
-    if (weekdayData.days > 0 && weekendData.days > 0) {
-        const weekdayAvg = Math.round(weekdayData.minutes / weekdayData.days);
-        const weekendAvg = Math.round(weekendData.minutes / weekendData.days);
-        const diff = Math.abs(weekendAvg - weekdayAvg);
+    const sunnyAvg = weatherGroups.sunny.days > 0 ? Math.round(weatherGroups.sunny.min / weatherGroups.sunny.days) : 0;
+    const cloudyAvg = weatherGroups.cloudy.days > 0 ? Math.round(weatherGroups.cloudy.min / weatherGroups.cloudy.days) : 0;
+    const rainyAvg = weatherGroups.rainy.days > 0 ? Math.round(weatherGroups.rainy.min / weatherGroups.rainy.days) : 0;
 
-        if (diff > 5) { // Only show if meaningful difference
-            if (weekendAvg > weekdayAvg) {
-                insights.push({
-                    icon: '📅',
-                    text: `Weekend warrior: <strong>${weekendAvg} min/day</strong> on weekends`,
-                    detail: `vs ${weekdayAvg} min/day on weekdays (+${Math.round((weekendAvg/weekdayAvg - 1) * 100)}%)`
-                });
-            } else {
-                insights.push({
-                    icon: '📅',
-                    text: `Weekday explorer: <strong>${weekdayAvg} min/day</strong> on weekdays`,
-                    detail: `vs ${weekendAvg} min/day on weekends (+${Math.round((weekdayAvg/weekendAvg - 1) * 100)}%)`
-                });
-            }
-        } else {
+    if (weatherGroups.sunny.days > 0 && (weatherGroups.cloudy.days > 0 || weatherGroups.rainy.days > 0)) {
+        const best = [{ name: 'sunny', avg: sunnyAvg, icon: '☀️' }, { name: 'cloudy', avg: cloudyAvg, icon: '☁️' }, { name: 'rainy', avg: rainyAvg, icon: '🌧️' }]
+            .filter(w => w.avg > 0)
+            .sort((a, b) => b.avg - a.avg);
+        if (best.length >= 2) {
+            const pctMore = best[1].avg > 0 ? Math.round((best[0].avg / best[1].avg - 1) * 100) : 0;
             insights.push({
-                icon: '📅',
-                text: `Consistent routine: ~<strong>${weekdayAvg} min/day</strong>`,
-                detail: `Similar activity on weekdays and weekends`
+                icon: best[0].icon,
+                text: `Prefers <strong>${best[0].name} days</strong> — ${best[0].avg} min/day avg`,
+                detail: pctMore > 10 ? `${pctMore}% more time outside than on ${best[1].name} days (${best[1].avg} min)` : `Similar to ${best[1].name} days (${best[1].avg} min)`
             });
         }
     }
 
-    // 4. Record day (longest total outside time in a single day)
+    // 3. Temperature sweet spot
+    const tempBuckets = {}; // rounded to 5°C bands
+    dates.forEach(dateStr => {
+        const isoDate = localeDateToISO(dateStr);
+        if (!isoDate || !cachedWeatherData[isoDate]) return;
+        const weather = cachedWeatherData[isoDate];
+        const avgTemp = (weather.tempMax + weather.tempMin) / 2;
+        const bucket = Math.round(avgTemp / 5) * 5;
+        if (!tempBuckets[bucket]) tempBuckets[bucket] = { totalMin: 0, days: 0 };
+        tempBuckets[bucket].totalMin += dailyDurations[dateStr] || 0;
+        tempBuckets[bucket].days++;
+    });
+
+    let bestTemp = null, bestTempAvg = 0;
+    Object.keys(tempBuckets).forEach(t => {
+        const b = tempBuckets[t];
+        if (b.days >= 2) { // need at least 2 days to be meaningful
+            const avg = b.totalMin / b.days;
+            if (avg > bestTempAvg) { bestTempAvg = avg; bestTemp = parseInt(t); }
+        }
+    });
+
+    if (bestTemp !== null) {
+        const lo = bestTemp - 2, hi = bestTemp + 2;
+        insights.push({
+            icon: '🌡️',
+            text: `Sweet spot: <strong>${lo}°C – ${hi}°C</strong>`,
+            detail: `Avg ${Math.round(bestTempAvg)} min outside when temps are around ${bestTemp}°C`
+        });
+    }
+
+    // 4. Record day with weather context
     let longestDay = 0, longestDayDate = '';
     Object.keys(dailyDurations).forEach(dateStr => {
-        if (dailyDurations[dateStr] > longestDay) {
-            longestDay = dailyDurations[dateStr];
-            longestDayDate = dateStr;
-        }
+        if (dailyDurations[dateStr] > longestDay) { longestDay = dailyDurations[dateStr]; longestDayDate = dateStr; }
     });
     if (longestDay > 0) {
         const hours = Math.floor(longestDay / 60);
         const mins = Math.round(longestDay % 60);
         const formatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        const isoDate = localeDateToISO(longestDayDate);
+        const weather = isoDate ? cachedWeatherData[isoDate] : null;
+        const weatherNote = weather ? ` — it was ${weather.icon} ${weather.tempMax}°C` : '';
         insights.push({
             icon: '🏆',
-            text: `Record day: <strong>${formatted}</strong> outside`,
-            detail: `on ${longestDayDate}`
+            text: `Record adventure: <strong>${formatted}</strong> outside`,
+            detail: `${longestDayDate}${weatherNote}`
         });
     }
 
-    // 5. Most outings in a day
-    let maxOutingsDay = 0, maxOutingsDayDate = '';
-    Object.keys(dailyCounts).forEach(dateStr => {
-        if (dailyCounts[dateStr] > maxOutingsDay) {
-            maxOutingsDay = dailyCounts[dateStr];
-            maxOutingsDayDate = dateStr;
-        }
+    // 5. Weekday vs Weekend personality
+    const weekdayData = { minutes: 0, days: 0 };
+    const weekendData = { minutes: 0, days: 0 };
+    Object.keys(dailyDurations).forEach(dateStr => {
+        const date = new Date(dateStr);
+        const day = date.getDay();
+        const isWeekend = (day === 0 || day === 6);
+        const target = isWeekend ? weekendData : weekdayData;
+        target.minutes += dailyDurations[dateStr] || 0;
+        target.days++;
     });
-    if (maxOutingsDay > 1) {
-        insights.push({
-            icon: '🚪',
-            text: `Busiest day: <strong>${maxOutingsDay} outings</strong>`,
-            detail: `on ${maxOutingsDayDate}`
-        });
+
+    if (weekdayData.days > 0 && weekendData.days > 0) {
+        const wdAvg = Math.round(weekdayData.minutes / weekdayData.days);
+        const weAvg = Math.round(weekendData.minutes / weekendData.days);
+        const diff = Math.abs(weAvg - wdAvg);
+        if (diff > 5) {
+            if (weAvg > wdAvg) {
+                insights.push({ icon: '😴', text: `Lazy weekdays, wild weekends`, detail: `${weAvg} min/day on weekends vs ${wdAvg} on weekdays` });
+            } else {
+                insights.push({ icon: '💼', text: `Weekday wanderer`, detail: `${wdAvg} min/day on weekdays vs ${weAvg} on weekends` });
+            }
+        } else {
+            insights.push({ icon: '⚖️', text: `Perfectly balanced schedule`, detail: `~${wdAvg} min/day regardless of the day` });
+        }
     }
 
-    // 6. Active days count
-    const activeDays = Object.keys(dailyCounts).length;
-    if (activeDays > 0) {
-        const avgPerDay = Math.round(stats.totalTimeOutsideMinutes / activeDays);
-        insights.push({
-            icon: '📊',
-            text: `<strong>${activeDays}</strong> active days recorded`,
-            detail: `Avg ${avgPerDay} min/day outside`
-        });
+    // 6. Rain dodger or rain lover?
+    if (weatherGroups.rainy.days >= 2 && weatherGroups.sunny.days >= 2) {
+        if (rainyAvg > sunnyAvg * 0.8) {
+            insights.push({
+                icon: '☔',
+                text: `<strong>Rain lover!</strong> Doesn't mind the wet`,
+                detail: `${rainyAvg} min/day even in rain (${weatherGroups.rainy.days} rainy days tracked)`
+            });
+        } else if (rainyAvg < sunnyAvg * 0.3) {
+            insights.push({
+                icon: '🐱',
+                text: `<strong>Rain dodger</strong> — true cat instinct`,
+                detail: `Only ${rainyAvg} min/day in rain vs ${sunnyAvg} on sunny days`
+            });
+        }
     }
 
     // Render

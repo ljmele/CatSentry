@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#1a1a1a"/>
+  <text x="256" y="280" text-anchor="middle" font-size="260" font-family="sans-serif">🐱</text>
+  <text x="256" y="400" text-anchor="middle" font-size="60" font-family="monospace" fill="#00ff00">SENTRY</text>
+</svg>
