@@ -1606,5 +1606,85 @@
   {
     "timestamp": 1771107667000,
     "type": 1
+  },
+  {
+    "timestamp": 1771141009000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771141294000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771141380000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771141978000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771148571000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771148632000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771149894000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771150184000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771152176000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771152298000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771152511000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771152690000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771152824000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771153344000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771158942000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771159198000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771161608000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771162748000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771163980000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771164382000,
+    "type": 1
   }
 ]
