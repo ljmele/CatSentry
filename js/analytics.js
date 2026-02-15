@@ -8,8 +8,8 @@ let cachedWeatherData = {}; // Cache weather data by date
 // Minimum valid timestamp (Jan 1, 2020 in ms)
 const MIN_VALID_TIMESTAMP = 1577836800000;
 
-// Maximum reasonable outing duration (24 hours in ms)
-const MAX_OUTING_DURATION_MS = 24 * 60 * 60 * 1000;
+// Maximum reasonable outing duration (5 hours in ms)
+const MAX_OUTING_DURATION_MS = 5 * 60 * 60 * 1000;
 
 // Minimum outing duration to consider valid (30 seconds)
 const MIN_OUTING_DURATION_MS = 30 * 1000;
@@ -121,6 +121,10 @@ function getAverageWeather(weatherCodes) {
  * - ERA5 reanalysis data (ECMWF) for historical data (very accurate)
  * - ICON, GFS, and other models for recent/forecast data
  * 
+ * Uses a hybrid fetching strategy:
+ * - Recent dates (within 90 days): Forecast API (has real-time data, no lag)
+ * - Historical dates (older than 90 days): Archive API (complete historical records)
+ * 
  * @param {string[]} dates - Array of date strings in YYYY-MM-DD format
  */
 async function fetchWeatherData(dates) {
@@ -133,49 +137,100 @@ async function fetchWeatherData(dates) {
         return cachedWeatherData;
     }
     
-    // Sort dates to find range
-    const sortedDates = [...uncachedDates].sort();
-    const startDate = sortedDates[0];
-    const endDate = sortedDates[sortedDates.length - 1];
-    
     // Don't fetch future dates
-    const today = new Date().toISOString().split('T')[0];
-    const adjustedEndDate = endDate > today ? today : endDate;
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const validDates = uncachedDates.filter(d => d <= todayStr);
     
-    if (startDate > today) return cachedWeatherData;
+    if (validDates.length === 0) return cachedWeatherData;
+    
+    // Calculate the threshold for "recent" dates (90 days ago)
+    const recentThreshold = new Date();
+    recentThreshold.setDate(recentThreshold.getDate() - 90);
+    const recentThresholdStr = recentThreshold.toISOString().split('T')[0];
+    
+    // Split dates into recent and historical
+    const recentDates = validDates.filter(d => d >= recentThresholdStr);
+    const historicalDates = validDates.filter(d => d < recentThresholdStr);
     
     try {
-        // Use Open-Meteo Historical Weather API
-        // Documentation: https://open-meteo.com/en/docs/historical-weather-api
-        const url = `https://archive-api.open-meteo.com/v1/archive?` +
-            `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
-            `&start_date=${startDate}&end_date=${adjustedEndDate}` +
-            `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
-            `&timezone=Europe/Rome`;  // Udine timezone
+        const fetchPromises = [];
         
-        console.log('Fetching weather data for Udine:', url);
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            console.warn('Weather API error:', response.status);
-            return cachedWeatherData;
+        // Fetch recent dates using Forecast API (supports past_days parameter)
+        if (recentDates.length > 0) {
+            const sortedRecent = [...recentDates].sort();
+            const startDate = sortedRecent[0];
+            const endDate = sortedRecent[sortedRecent.length - 1];
+            
+            // Calculate how many days back from today
+            const startDateObj = new Date(startDate);
+            const daysDiff = Math.ceil((today - startDateObj) / (1000 * 60 * 60 * 24));
+            
+            const forecastUrl = `https://api.open-meteo.com/v1/forecast?` +
+                `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
+                `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
+                `&timezone=Europe/Rome` +
+                `&past_days=${Math.min(daysDiff, 92)}`; // Forecast API supports up to 92 past days
+            
+            console.log(`Fetching ${recentDates.length} recent dates using Forecast API`);
+            fetchPromises.push(
+                fetch(forecastUrl)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`Forecast API error: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => ({ type: 'recent', data }))
+            );
         }
         
-        const data = await response.json();
-        
-        if (data.daily && data.daily.time) {
-            data.daily.time.forEach((date, idx) => {
-                cachedWeatherData[date] = {
-                    code: data.daily.weather_code[idx],
-                    icon: getWeatherIcon(data.daily.weather_code[idx]),
-                    tempMax: Math.round(data.daily.temperature_2m_max[idx]),
-                    tempMin: Math.round(data.daily.temperature_2m_min[idx]),
-                    precipitation: data.daily.precipitation_sum[idx] || 0
-                };
-            });
+        // Fetch historical dates using Archive API
+        if (historicalDates.length > 0) {
+            const sortedHistorical = [...historicalDates].sort();
+            const startDate = sortedHistorical[0];
+            const endDate = sortedHistorical[sortedHistorical.length - 1];
+            
+            const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?` +
+                `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
+                `&start_date=${startDate}&end_date=${endDate}` +
+                `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
+                `&timezone=Europe/Rome`;
+            
+            console.log(`Fetching ${historicalDates.length} historical dates using Archive API`);
+            fetchPromises.push(
+                fetch(archiveUrl)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`Archive API error: ${response.status}`);
+                        return response.json();
+                    })
+                    .then(data => ({ type: 'historical', data }))
+            );
         }
         
-        console.log('Weather data cached:', Object.keys(cachedWeatherData).length, 'days');
+        // Wait for all fetch requests to complete
+        const results = await Promise.all(fetchPromises);
+        
+        // Process and merge results from both APIs
+        for (const result of results) {
+            const { data } = result;
+            
+            if (data.daily && data.daily.time) {
+                data.daily.time.forEach((date, idx) => {
+                    // Only cache if the date was in our requested list
+                    if (validDates.includes(date)) {
+                        cachedWeatherData[date] = {
+                            code: data.daily.weather_code[idx],
+                            icon: getWeatherIcon(data.daily.weather_code[idx]),
+                            tempMax: Math.round(data.daily.temperature_2m_max[idx]),
+                            tempMin: Math.round(data.daily.temperature_2m_min[idx]),
+                            precipitation: data.daily.precipitation_sum[idx] || 0
+                        };
+                    }
+                });
+            }
+        }
+        
+        console.log(`Weather data cached: ${Object.keys(cachedWeatherData).length} days total ` +
+                   `(${recentDates.length} recent, ${historicalDates.length} historical)`);
         
     } catch (error) {
         console.warn('Failed to fetch weather data:', error);
