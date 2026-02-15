@@ -1,4 +1,4 @@
-// analytics.js - v1.7 with State Machine logic + Weather Integration + Insights (Udine, Italy)
+// analytics.js - v1.8 with State Machine logic + Weather Integration + Insights (Udine, Italy)
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
