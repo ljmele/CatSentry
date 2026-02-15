@@ -592,8 +592,8 @@ function getCatStatus(events) {
     }
     
     return catIsOutside 
-        ? { status: 'outside', icon: '🌳', text: 'Outside' }
-        : { status: 'inside', icon: '🏠', text: 'Inside' };
+        ? { status: 'outside', icon: '🌳', text: 'Marie is Outside' }
+        : { status: 'inside', icon: '🏠', text: 'Marie is Inside' };
 }
 
 // --- Chart Instances ---
@@ -1065,7 +1065,7 @@ async function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, 
             const period = maxHour < 6 ? 'night owl' : maxHour < 12 ? 'morning cat' : maxHour < 17 ? 'afternoon adventurer' : 'evening prowler';
             insights.push({
                 icon: maxHour < 6 ? '🌙' : maxHour < 12 ? '🌅' : maxHour < 17 ? '☀️' : '🌆',
-                text: `Your cat is a <strong>${period}</strong>`,
+                text: `Marie is a <strong>${period}</strong>`,
                 detail: `Peak activity: ${maxHour}:00–${endHour}:00 (${Math.round(maxMinutes)} min total)`
             });
         }
@@ -1183,13 +1183,13 @@ async function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, 
         if (rainyAvg > sunnyAvg * 0.8) {
             insights.push({
                 icon: '☔',
-                text: `<strong>Rain lover!</strong> Doesn't mind the wet`,
+                text: `<strong>Rain lover!</strong> Marie doesn't mind the wet`,
                 detail: `${rainyAvg} min/day even in rain (${weatherGroups.rainy.days} rainy days tracked)`
             });
         } else if (rainyAvg < sunnyAvg * 0.3) {
             insights.push({
                 icon: '🐱',
-                text: `<strong>Rain dodger</strong> — true cat instinct`,
+                text: `<strong>Rain dodger</strong> — Marie knows when to stay inside`,
                 detail: `Only ${rainyAvg} min/day in rain vs ${sunnyAvg} on sunny days`
             });
         }

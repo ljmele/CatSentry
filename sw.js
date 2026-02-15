@@ -8,6 +8,8 @@ const PRECACHE_URLS = [
   './js/analytics.js',
   './js/storage.js',
   './manifest.json',
+  'images/marie/avatar.png',
+  'images/marie/hero.png',
   'https://cdn.jsdelivr.net/npm/chart.js'
 ];
 

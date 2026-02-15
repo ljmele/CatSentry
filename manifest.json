@@ -1,6 +1,6 @@
 {
-  "name": "CatSentry Dashboard",
-  "short_name": "CatSentry",
+  "name": "Marie Sentry Dashboard",
+  "short_name": "MarieSentry",
   "description": "BLE-based cat tracking dashboard with weather insights",
   "start_url": "./index.html",
   "display": "standalone",
@@ -9,15 +9,15 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "icons/icon-192.svg",
+      "src": "images/marie/avatar.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icons/icon-512.svg",
+      "src": "images/marie/avatar.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
