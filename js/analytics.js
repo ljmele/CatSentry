@@ -215,16 +215,14 @@ async function fetchWeatherData(dates) {
             
             if (data.daily && data.daily.time) {
                 data.daily.time.forEach((date, idx) => {
-                    // Only cache if the date was in our requested list
-                    if (validDates.includes(date)) {
-                        cachedWeatherData[date] = {
-                            code: data.daily.weather_code[idx],
-                            icon: getWeatherIcon(data.daily.weather_code[idx]),
-                            tempMax: Math.round(data.daily.temperature_2m_max[idx]),
-                            tempMin: Math.round(data.daily.temperature_2m_min[idx]),
-                            precipitation: data.daily.precipitation_sum[idx] || 0
-                        };
-                    }
+                    // Cache all dates returned by the API (including today and dates in between)
+                    cachedWeatherData[date] = {
+                        code: data.daily.weather_code[idx],
+                        icon: getWeatherIcon(data.daily.weather_code[idx]),
+                        tempMax: Math.round(data.daily.temperature_2m_max[idx]),
+                        tempMin: Math.round(data.daily.temperature_2m_min[idx]),
+                        precipitation: data.daily.precipitation_sum[idx] || 0
+                    };
                 });
             }
         }
