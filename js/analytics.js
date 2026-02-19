@@ -129,111 +129,103 @@ function getAverageWeather(weatherCodes) {
  */
 async function fetchWeatherData(dates) {
     if (!WEATHER_CONFIG.enabled || dates.length === 0) return {};
-    
-    // Filter dates we don't have cached
     const uncachedDates = dates.filter(d => !cachedWeatherData[d]);
+    if (uncachedDates.length === 0) return cachedWeatherData;
     
-    if (uncachedDates.length === 0) {
-        return cachedWeatherData;
-    }
-    
-    // Don't fetch future dates
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
     const validDates = uncachedDates.filter(d => d <= todayStr);
-    
     if (validDates.length === 0) return cachedWeatherData;
-    
-    // Calculate the threshold for "recent" dates (90 days ago)
-    const recentThreshold = new Date();
-    recentThreshold.setDate(recentThreshold.getDate() - 90);
-    const recentThresholdStr = recentThreshold.toISOString().split('T')[0];
-    
-    // Split dates into recent and historical
-    const recentDates = validDates.filter(d => d >= recentThresholdStr);
-    const historicalDates = validDates.filter(d => d < recentThresholdStr);
-    
+
+    // Ordina e trova range minimo e massimo per una singola chiamata API efficiente
+    validDates.sort();
+    const startDate = validDates[0];
+    const endDate = validDates[validDates.length - 1];
+
+    const apiUrl = `https://archive-api.open-meteo.com/v1/archive?` +
+        `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
+        `&start_date=${startDate}&end_date=${endDate}` +
+        `&hourly=weather_code,temperature_2m,precipitation` +
+        `&timezone=Europe/Rome`;
+
     try {
-        const fetchPromises = [];
-        
-        // Fetch recent dates using Forecast API (supports past_days parameter)
-        if (recentDates.length > 0) {
-            const sortedRecent = [...recentDates].sort();
-            const startDate = sortedRecent[0];
-            const endDate = sortedRecent[sortedRecent.length - 1];
-            
-            // Calculate how many days back from today
-            const startDateObj = new Date(startDate);
-            const daysDiff = Math.ceil((today - startDateObj) / (1000 * 60 * 60 * 24));
-            
-            const forecastUrl = `https://api.open-meteo.com/v1/forecast?` +
-                `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
-                `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
-                `&timezone=Europe/Rome` +
-                `&past_days=${Math.min(daysDiff, 92)}`; // Forecast API supports up to 92 past days
-            
-            console.log(`Fetching ${recentDates.length} recent dates using Forecast API`);
-            fetchPromises.push(
-                fetch(forecastUrl)
-                    .then(response => {
-                        if (!response.ok) throw new Error(`Forecast API error: ${response.status}`);
-                        return response.json();
-                    })
-                    .then(data => ({ type: 'recent', data }))
-            );
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const data = await response.json();
+
+        // Raggruppa i dati orari estratti per data (YYYY-MM-DD)
+        const hourlyDataByDate = {};
+        for (let i = 0; i < data.hourly.time.length; i++) {
+            const timeStr = data.hourly.time[i];
+            const dateStrIso = timeStr.split('T')[0];
+            const hour = parseInt(timeStr.split('T')[1].substring(0, 2), 10);
+
+            if (!hourlyDataByDate[dateStrIso]) hourlyDataByDate[dateStrIso] = new Array(24);
+            hourlyDataByDate[dateStrIso][hour] = {
+                temp: data.hourly.temperature_2m[i],
+                code: data.hourly.weather_code[i],
+                precip: data.hourly.precipitation[i] || 0
+            };
         }
-        
-        // Fetch historical dates using Archive API
-        if (historicalDates.length > 0) {
-            const sortedHistorical = [...historicalDates].sort();
-            const startDate = sortedHistorical[0];
-            const endDate = sortedHistorical[sortedHistorical.length - 1];
-            
-            const archiveUrl = `https://archive-api.open-meteo.com/v1/archive?` +
-                `latitude=${WEATHER_CONFIG.latitude}&longitude=${WEATHER_CONFIG.longitude}` +
-                `&start_date=${startDate}&end_date=${endDate}` +
-                `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
-                `&timezone=Europe/Rome`;
-            
-            console.log(`Fetching ${historicalDates.length} historical dates using Archive API`);
-            fetchPromises.push(
-                fetch(archiveUrl)
-                    .then(response => {
-                        if (!response.ok) throw new Error(`Archive API error: ${response.status}`);
-                        return response.json();
-                    })
-                    .then(data => ({ type: 'historical', data }))
+
+        // Calcola il meteo "Vissuto" per le date richieste
+        validDates.forEach(isoDate => {
+            const dayHourlyWeather = hourlyDataByDate[isoDate];
+            if (!dayHourlyWeather) return;
+
+            // Troviamo la chiave "locale" che corrisponde a questo isoDate per pescare i minuti esatti
+            const localeDateKey = Object.keys(window.cachedDailyHourlyDurations || {}).find(
+                key => localeDateToISO(key) === isoDate
             );
-        }
-        
-        // Wait for all fetch requests to complete
-        const results = await Promise.all(fetchPromises);
-        
-        // Process and merge results from both APIs
-        for (const result of results) {
-            const { data } = result;
-            
-            if (data.daily && data.daily.time) {
-                data.daily.time.forEach((date, idx) => {
-                    // Cache all dates returned by the API (including today and dates in between)
-                    cachedWeatherData[date] = {
-                        code: data.daily.weather_code[idx],
-                        icon: getWeatherIcon(data.daily.weather_code[idx]),
-                        tempMax: Math.round(data.daily.temperature_2m_max[idx]),
-                        tempMin: Math.round(data.daily.temperature_2m_min[idx]),
-                        precipitation: data.daily.precipitation_sum[idx] || 0
-                    };
-                });
+
+            const hourlyDurations = localeDateKey ? window.cachedDailyHourlyDurations[localeDateKey] : new Array(24).fill(0);
+
+            let totalMinsOutside = 0;
+            let weightedTemp = 0;
+            let weightedSeverity = 0;
+            let exactPrecipitation = 0;
+
+            // Iteriamo sulle 24 ore
+            for (let h = 0; h < 24; h++) {
+                const mins = hourlyDurations[h] || 0;
+                if (mins > 0 && dayHourlyWeather[h]) {
+                    totalMinsOutside += mins;
+                    weightedTemp += dayHourlyWeather[h].temp * mins;
+                    weightedSeverity += (WEATHER_SEVERITY[dayHourlyWeather[h].code] || 0) * mins;
+                    exactPrecipitation += dayHourlyWeather[h].precip; // Somma la pioggia caduta MENTRE era fuori
+                }
             }
-        }
-        
-        console.log(`Weather data cached: ${Object.keys(cachedWeatherData).length} days total ` +
-                   `(${recentDates.length} recent, ${historicalDates.length} historical)`);
-        
+
+            // Se non è uscita (o non abbiamo dati), facciamo una media base della giornata intera
+            if (totalMinsOutside === 0) {
+                let sumTemp = 0, maxCode = 0;
+                for(let h=0; h<24; h++) { sumTemp += dayHourlyWeather[h].temp; maxCode = Math.max(maxCode, dayHourlyWeather[h].code); }
+                cachedWeatherData[isoDate] = {
+                    code: maxCode, icon: getWeatherIcon(maxCode),
+                    tempMax: Math.round(sumTemp/24), tempMin: Math.round(sumTemp/24), precipitation: 0
+                };
+                return;
+            }
+
+            // Calcolo effettivo: divisione per il tempo totale e arrotondamento
+            const avgTemp = Math.round(weightedTemp / totalMinsOutside);
+            const avgSeverity = Math.round(weightedSeverity / totalMinsOutside);
+            let finalCode = SEVERITY_TO_CODE[avgSeverity] || 0;
+
+            // Applica il fix: se indica pioggia ma non ha piovuto mentre era fuori, è nuvoloso
+            if (finalCode >= 51 && exactPrecipitation < 1.0) finalCode = 2; 
+
+            cachedWeatherData[isoDate] = {
+                code: finalCode,
+                icon: getWeatherIcon(finalCode),
+                tempMax: avgTemp, // Usiamo avgTemp per entrambi per non rompere il resto della UI
+                tempMin: avgTemp, 
+                precipitation: exactPrecipitation
+            };
+        });
+
     } catch (error) {
         console.warn('Failed to fetch weather data:', error);
     }
-    
     return cachedWeatherData;
 }
 
@@ -255,7 +247,7 @@ function updateAnalytics(history) {
     const sorted = [...validHistory].sort((a, b) => a.timestamp - b.timestamp);
 
     // 1. Process base data using State Machine (Daily resolution)
-    const { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents } = processDataWithStateMachine(sorted);
+    const { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents, dailyHourlyDurations } = processDataWithStateMachine(sorted);
     
     // Log stats for debugging
     console.log("Analytics Stats:", stats);
@@ -266,6 +258,7 @@ function updateAnalytics(history) {
     
     // Store processed events globally for the Recent Events display
     window.lastProcessedEvents = processedEvents;
+    window.cachedDailyHourlyDurations = dailyHourlyDurations;
 
     // 2. Render Preferred Hours (time-based) + Weather Correlation + Insights
     renderHourlyChart(hourlyDuration);
@@ -398,7 +391,8 @@ function processDataWithStateMachine(events) {
     const dailyDurations = {};   // Duration in minutes
     const hourlyActivity = new Array(24).fill(0); // All events for activity pattern
     const hourlyDuration = new Array(24).fill(0);  // Minutes outside per hour (for Preferred Hours chart)
-    
+    const dailyHourlyDurations = {}; // Traccia i minuti passati fuori ora per ora, giorno per giorno
+
     // Processed events with their effective status
     const processedEvents = [];
     
@@ -495,13 +489,22 @@ function processDataWithStateMachine(events) {
                     const exitDate = new Date(currentOuting.exitTimestamp);
                     const entryDate = new Date(event.timestamp);
                     let cursor = new Date(exitDate);
-                    while (cursor < entryDate) {
+                    while (cursor < entryDate) {    
                         const hour = cursor.getHours();
+                        const cursorDateKey = cursor.toLocaleDateString();
+                        
+                        if (!dailyHourlyDurations[cursorDateKey]) {
+                            dailyHourlyDurations[cursorDateKey] = new Array(24).fill(0);
+                        }
+                        
                         const nextHour = new Date(cursor);
                         nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
                         const sliceEnd = entryDate < nextHour ? entryDate : nextHour;
                         const sliceMinutes = (sliceEnd - cursor) / 1000 / 60;
-                        hourlyDuration[hour] += sliceMinutes;
+                        
+                        hourlyDuration[hour] += sliceMinutes; // Statistica globale
+                        dailyHourlyDurations[cursorDateKey][hour] += sliceMinutes; // Statistica del singolo giorno
+                        
                         cursor = nextHour;
                     }
                     
@@ -562,7 +565,7 @@ function processDataWithStateMachine(events) {
         }
     });
 
-    return { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents };
+    return { dailyCounts, dailyDurations, hourlyActivity, hourlyDuration, stats, processedEvents, dailyHourlyDurations };
 }
 
 /**
