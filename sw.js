@@ -1,5 +1,5 @@
-// Marie Sentry Service Worker v1.8
-const CACHE_NAME = 'catsentry-v1.8';
+// Marie Sentry Service Worker 
+const CACHE_NAME = 'catsentry-v2.0';
 
 // Files to cache for offline use
 const PRECACHE_URLS = [
@@ -8,7 +8,8 @@ const PRECACHE_URLS = [
   './js/analytics.js',
   './js/storage.js',
   './manifest.json',
-  'images/marie/avatar.png',
+  'images/marie/avatar-192.jpg',
+  'images/marie/avatar-512.jpg',
   'images/marie/hero.png',
   'https://cdn.jsdelivr.net/npm/chart.js'
 ];
