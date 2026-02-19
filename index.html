@@ -120,6 +120,18 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
         }
+        .topbar-cat-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--accent-dim);
+            color: var(--accent);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
 
         /* ========== HERO SECTION ========== */
         .hero {
@@ -139,32 +151,20 @@
         }
         .hero-overlay {
             position: absolute;
-            bottom: 0;
+            top: 0;
             left: 0;
             right: 0;
-            padding: 16px 20px;
-            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            padding: 14px 20px;
+            background: linear-gradient(rgba(0,0,0,0.6), transparent);
             display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
+            align-items: flex-start;
+            justify-content: flex-start;
         }
         .hero-status {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
-            color: #fff;
-            text-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        }
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: var(--accent-dim);
-            color: var(--accent);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            backdrop-filter: blur(8px);
+            color: rgba(255,255,255,0.9);
+            text-shadow: 0 1px 6px rgba(0,0,0,0.7);
         }
 
         /* ========== QUICK STATS (2x2 grid) ========== */
@@ -284,7 +284,7 @@
             background: var(--bg-base);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            height: 90px;
+            height: 190px;
             overflow-y: auto;
             padding: 10px 12px;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
@@ -332,6 +332,12 @@
         }
 
         /* ========== RECENT EVENTS ========== */
+        .recent-events-container {
+            max-height: 310px;
+            overflow-y: auto;
+        }
+        .recent-events-container::-webkit-scrollbar { width: 4px; }
+        .recent-events-container::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
         .recent-events { list-style: none; padding: 0; margin: 0; }
         .recent-events li {
             display: flex;
@@ -524,6 +530,10 @@
             </div>
         </div>
     </div>
+    <div class="topbar-cat-status" id="topbarCatStatus">
+        <span id="topbarCatIcon">❓</span>
+        <span id="topbarCatText">Unknown</span>
+    </div>
 </div>
 
 <div class="container">
@@ -532,11 +542,7 @@
     <div class="hero">
         <img src="images/marie/hero.png" alt="Marie the cat">
         <div class="hero-overlay">
-            <div class="hero-status" id="heroStatus">Welcome back! 🐾</div>
-            <div class="hero-badge" id="heroBadge">
-                <span id="heroBadgeIcon">❓</span>
-                <span id="heroBadgeText">Unknown</span>
-            </div>
+            <div class="hero-status">Welcome back! 🐾</div>
         </div>
     </div>
 
@@ -577,9 +583,11 @@
     <!-- Recent Events -->
     <div class="card" style="margin-bottom: 16px;">
         <h3>📋 Recent Activity <span class="subtitle">(faded = ignored by state machine)</span></h3>
-        <ul class="recent-events" id="recentEventsList">
-            <li class="no-events">No events recorded yet</li>
-        </ul>
+        <div class="recent-events-container">
+            <ul class="recent-events" id="recentEventsList">
+                <li class="no-events">No events recorded yet</li>
+            </ul>
+        </div>
     </div>
 
     <!-- Charts Grid -->
@@ -605,14 +613,12 @@
             </div>
         </div>
 
-        <!-- Raw Events & Preferred Hours -->
-        <div class="card">
-            <h3>📈 Raw Events</h3>
-            <canvas id="activityChart" style="max-height: 250px;"></canvas>
-        </div>
-        <div class="card">
+        <!-- Preferred Hours (full-width, larger) -->
+        <div class="card full-width" style="height: 380px;">
             <h3>🕐 Preferred Hours</h3>
-            <canvas id="hourlyChart" style="max-height: 250px;"></canvas>
+            <div style="height: 320px; position: relative;">
+                <canvas id="hourlyChart"></canvas>
+            </div>
         </div>
 
         <!-- Weather Correlation -->
@@ -718,26 +724,7 @@
     let entryCount = eventHistory.filter(e => e.type === 1).length;
     let exitCount = eventHistory.filter(e => e.type === 2).length;
 
-    // Initialize Raw Events Chart
-    const ctx = document.getElementById('activityChart').getContext('2d');
-    const chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['Entries (raw)', 'Exits (raw)'],
-            datasets: [{
-                label: 'Raw Events',
-                data: [entryCount, exitCount],
-                backgroundColor: ['#36a2eb', '#ff6384'],
-                borderColor: '#fff',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: { y: { beginAtZero: true, grid: { color: '#333' } }, x: { grid: { color: '#333' } } },
-            plugins: { legend: { labels: { color: '#fff' } } }
-        }
-    });
+    // Raw event counts (kept for stats display, chart removed)
 
     // --- VALIDATION ---
     function isValidEvent(timestamp, type) {
@@ -789,10 +776,6 @@
     }
 
     function updateUI() {
-        // Update raw event counts chart
-        chart.data.datasets[0].data = [entryCount, exitCount];
-        chart.update();
-        
         // Update stats bar
         document.getElementById('statRawEvents').textContent = eventHistory.length;
         
@@ -839,17 +822,11 @@
         const catStatus = getCatStatus(eventHistory);
         document.getElementById('statCatStatus').textContent = catStatus.icon + ' ' + (catStatus.text || '');
 
-        // Update Hero badge
-        const heroBadgeIcon = document.getElementById('heroBadgeIcon');
-        const heroBadgeText = document.getElementById('heroBadgeText');
-        const heroStatus = document.getElementById('heroStatus');
-        if (heroBadgeIcon) heroBadgeIcon.textContent = catStatus.icon || '❓';
-        if (heroBadgeText) heroBadgeText.textContent = catStatus.text || 'Unknown';
-        if (heroStatus) {
-            if (catStatus.text === 'Outside') heroStatus.textContent = 'Marie is outside! 🌳';
-            else if (catStatus.text === 'Inside') heroStatus.textContent = 'Marie is home 🏠';
-            else heroStatus.textContent = 'Welcome back! 🐾';
-        }
+        // Update topbar cat status pill
+        const topbarCatIcon = document.getElementById('topbarCatIcon');
+        const topbarCatText = document.getElementById('topbarCatText');
+        if (topbarCatIcon) topbarCatIcon.textContent = catStatus.icon || '❓';
+        if (topbarCatText) topbarCatText.textContent = catStatus.text || 'Unknown';
 
         // Update Recent Events list
         updateRecentEvents();
@@ -879,11 +856,11 @@
             processedMap.set(key, pe);
         });
         
-        // Get last 15 events, most recent first
+        // Get last 50 events, most recent first (container scrolls, ~7 visible)
         const recent = [...eventHistory]
             .filter(e => e.timestamp >= MIN_VALID_TIMESTAMP)
             .sort((a, b) => b.timestamp - a.timestamp)
-            .slice(0, 15);
+            .slice(0, 50);
         
         listEl.innerHTML = recent.map(event => {
             const date = new Date(event.timestamp);

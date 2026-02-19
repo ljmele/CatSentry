@@ -853,10 +853,27 @@ function renderHourlyChart(dataArray) {
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
-    const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
+    // Use AM/PM labels for readability: 12AM, 1AM, ..., 12PM, 1PM, ...
+    const labels = Array.from({length: 24}, (_, i) => {
+        if (i === 0) return '12AM';
+        if (i < 12) return `${i}AM`;
+        if (i === 12) return '12PM';
+        return `${i - 12}PM`;
+    });
     const rounded = dataArray.map(v => Math.round(v * 10) / 10);
+
+    // Find the peak hour for highlighting
+    const maxVal = Math.max(...rounded);
     
     if (hourlyChartInstance) hourlyChartInstance.destroy();
+
+    // Create gradient fill
+    const gradient = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, canvas.height / 2
+    );
+    gradient.addColorStop(0, 'rgba(0, 230, 118, 0.05)');
+    gradient.addColorStop(1, 'rgba(0, 230, 118, 0.25)');
 
     hourlyChartInstance = new Chart(ctx, {
         type: 'radar',
@@ -865,12 +882,14 @@ function renderHourlyChart(dataArray) {
             datasets: [{
                 label: 'Minutes Outside',
                 data: rounded,
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: gradient,
+                borderColor: 'rgba(0, 230, 118, 0.8)',
                 borderWidth: 2,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                pointBackgroundColor: 'rgba(75, 192, 192, 1)'
+                pointRadius: rounded.map(v => v === maxVal && maxVal > 0 ? 5 : 2),
+                pointHoverRadius: 6,
+                pointBackgroundColor: rounded.map(v => v === maxVal && maxVal > 0 ? '#00e676' : 'rgba(0, 230, 118, 0.6)'),
+                pointBorderColor: 'transparent',
+                fill: true
             }]
         },
         options: {
@@ -878,16 +897,40 @@ function renderHourlyChart(dataArray) {
             maintainAspectRatio: false,
             scales: {
                 r: {
-                    angleLines: { color: '#333' },
-                    grid: { color: '#333' },
-                    pointLabels: { color: '#888', font: { size: 10 } },
-                    ticks: { backdropColor: 'transparent', display: false }
+                    angleLines: { color: 'rgba(255,255,255,0.06)' },
+                    grid: { color: 'rgba(255,255,255,0.06)', circular: true },
+                    pointLabels: { 
+                        color: '#a0a0a0', 
+                        font: { size: 11, family: "'Inter', system-ui, sans-serif", weight: '500' },
+                        padding: 12
+                    },
+                    ticks: { 
+                        backdropColor: 'transparent', 
+                        display: false,
+                        stepSize: Math.ceil(maxVal / 4) || 5
+                    },
+                    suggestedMin: 0
                 }
             },
             plugins: { 
-                title: { display: true, text: 'Time Outside by Hour (minutes)', color: '#fff' },
+                title: { 
+                    display: true, 
+                    text: maxVal > 0 ? `Peak: ${labels[rounded.indexOf(maxVal)]} (${maxVal} min)` : 'Time Outside by Hour',
+                    color: '#a0a0a0',
+                    font: { size: 12, family: "'Inter', system-ui, sans-serif", weight: '500' },
+                    padding: { bottom: 8 }
+                },
                 legend: { display: false },
                 tooltip: {
+                    backgroundColor: 'rgba(20,20,20,0.95)',
+                    borderColor: 'rgba(0, 230, 118, 0.3)',
+                    borderWidth: 1,
+                    titleColor: '#f0f0f0',
+                    bodyColor: '#a0a0a0',
+                    titleFont: { family: "'Inter', system-ui, sans-serif" },
+                    bodyFont: { family: "'Inter', system-ui, sans-serif" },
+                    cornerRadius: 8,
+                    padding: 10,
                     callbacks: {
                         label: function(context) {
                             return `${context.raw} min outside`;
