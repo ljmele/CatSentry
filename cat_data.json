@@ -1946,5 +1946,65 @@
   {
     "timestamp": 1771612434000,
     "type": 1
+  },
+  {
+    "timestamp": 1771620095000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771660219000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771660587000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771680250000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771680531000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771680754000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771680800000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771680926000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771681091000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771685184000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771685357000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771690727000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771691165000,
+    "type": 1
+  },
+  {
+    "timestamp": 1771692028000,
+    "type": 2
+  },
+  {
+    "timestamp": 1771692248000,
+    "type": 1
   }
 ]
