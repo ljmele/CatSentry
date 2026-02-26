@@ -1,4 +1,4 @@
-// analytics.js - v1.8 with State Machine logic + Weather Integration + Insights (Udine, Italy)
+// analytics.js - v2.1 with State Machine logic + Weather Integration + Insights + Predictions (Udine, Italy)
 
 let currentPeriod = 'day';
 let cachedDailyCounts = {};
@@ -264,6 +264,7 @@ function updateAnalytics(history) {
     renderHourlyChart(hourlyDuration);
     renderWeatherCorrelationChart(cachedDailyDurations);
     renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, stats);
+    renderPredictionPanel(history, hourlyDuration, dailyCounts, dailyDurations);
 
     // 3. Render Aggregated Charts
     refreshTimeCharts();
@@ -1256,4 +1257,261 @@ async function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, 
             </div>
         </div>
     `).join('');
+}
+
+// =====================================================================
+//  PREDICTION ENGINE — "Marie's Next Move"
+// =====================================================================
+
+/**
+ * Builds a behavioral model from historical data and renders predictions.
+ * 
+ * The model works by analyzing:
+ *  1. Hourly outside-probability (what % of time Marie is outside at each hour)
+ *  2. Transition probabilities (given current state + hour, what happens next)
+ *  3. Average outing duration by hour-of-day
+ *  4. Day-of-week modifiers (weekday vs weekend patterns)
+ *  5. Current state awareness (is she inside or outside right now?)
+ *
+ * @param {Array} history - Full event history array
+ * @param {Object} hourlyDuration - 24-element array of total minutes outside per hour
+ * @param {Object} dailyCounts - Map of dateKey → outing count
+ * @param {Object} dailyDurations - Map of dateKey → total minutes outside
+ */
+function renderPredictionPanel(history, hourlyDuration, dailyCounts, dailyDurations) {
+    const panel = document.getElementById('predictionContent');
+    if (!panel) return;
+
+    const validHistory = (history || []).filter(e => e.timestamp >= MIN_VALID_TIMESTAMP);
+    if (validHistory.length < 10) {
+        panel.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">Need more data to predict — keep tracking! (min 10 events)</p>';
+        return;
+    }
+
+    const sorted = [...validHistory].sort((a, b) => a.timestamp - b.timestamp);
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentDay = now.getDay(); // 0=Sun
+    const isWeekend = (currentDay === 0 || currentDay === 6);
+
+    // ---- 1. Build hourly outside-probability profile ----
+    // For each hour, calculate: how many days had "outside" time in that hour?
+    const hourlyOutsideDays = new Array(24).fill(0);
+    const totalDaysTracked = Object.keys(dailyCounts).length || 1;
+
+    // Count days with outside time per hour using dailyHourlyDurations
+    const dhd = window.cachedDailyHourlyDurations || {};
+    Object.values(dhd).forEach(hourArray => {
+        for (let h = 0; h < 24; h++) {
+            if (hourArray[h] > 0) hourlyOutsideDays[h]++;
+        }
+    });
+
+    const hourlyProbability = hourlyOutsideDays.map(d => Math.min(d / totalDaysTracked, 1.0));
+
+    // ---- 2. Weekday/Weekend modifier ----
+    const wdDays = { count: 0, outings: 0 };
+    const weDays = { count: 0, outings: 0 };
+    Object.keys(dailyCounts).forEach(dateStr => {
+        const d = new Date(dateStr);
+        const dayNum = d.getDay();
+        if (dayNum === 0 || dayNum === 6) {
+            weDays.count++;
+            weDays.outings += dailyCounts[dateStr];
+        } else {
+            wdDays.count++;
+            wdDays.outings += dailyCounts[dateStr];
+        }
+    });
+    const wdAvgOutings = wdDays.count > 0 ? wdDays.outings / wdDays.count : 1;
+    const weAvgOutings = weDays.count > 0 ? weDays.outings / weDays.count : 1;
+    const overallAvg = (wdAvgOutings * 5 + weAvgOutings * 2) / 7 || 1;
+    const dayModifier = isWeekend
+        ? (weAvgOutings / overallAvg)
+        : (wdAvgOutings / overallAvg);
+
+    // ---- 3. Average outing duration by hour ----
+    const hourlyAvgDuration = new Array(24).fill(0);
+    if (hourlyDuration) {
+        const maxDurHours = hourlyDuration.reduce((a, b) => a + b, 0);
+        hourlyDuration.forEach((min, h) => {
+            hourlyAvgDuration[h] = hourlyOutsideDays[h] > 0
+                ? Math.round(min / hourlyOutsideDays[h])
+                : 0;
+        });
+    }
+
+    // ---- 4. Get current state ----
+    const catStatus = getCatStatus(validHistory);
+    const isCurrentlyOutside = catStatus.status === 'outside';
+
+    // ---- 5. Transition analysis: how long until next state change? ----
+    // Analyze past outings to find typical duration at current hour
+    let avgOutingDurationNow = 0;
+    let avgInsideDurationNow = 0;
+    let outingCountForHour = 0;
+    let insideCountForHour = 0;
+
+    // Walk through pairs to compute outing/inside durations keyed by start-hour
+    let state = false; // false=inside
+    let lastChangeTime = null;
+    for (const event of sorted) {
+        if (event.type === 2) { // EXIT
+            if (!state && lastChangeTime) {
+                // Was inside, record inside-duration keyed to the hour when she came inside
+                const insideHour = new Date(lastChangeTime).getHours();
+                const dur = (event.timestamp - lastChangeTime) / 1000 / 60;
+                if (dur > 0.5 && dur < 1440) { // 30s to 24h
+                    if (insideHour === currentHour) {
+                        avgInsideDurationNow += dur;
+                        insideCountForHour++;
+                    }
+                }
+            }
+            state = true;
+            lastChangeTime = event.timestamp;
+        } else if (event.type === 1) { // ENTRY
+            if (state && lastChangeTime) {
+                const outHour = new Date(lastChangeTime).getHours();
+                const dur = (event.timestamp - lastChangeTime) / 1000 / 60;
+                if (dur >= 0.5 && dur <= 300) { // 30s to 5h
+                    if (outHour === currentHour) {
+                        avgOutingDurationNow += dur;
+                        outingCountForHour++;
+                    }
+                }
+            }
+            state = false;
+            lastChangeTime = event.timestamp;
+        }
+    }
+
+    avgOutingDurationNow = outingCountForHour > 0 ? Math.round(avgOutingDurationNow / outingCountForHour) : 15;
+    avgInsideDurationNow = insideCountForHour > 0 ? Math.round(avgInsideDurationNow / insideCountForHour) : 60;
+
+    // ---- 6. Build "right now" prediction ----
+    const currentProb = Math.min(hourlyProbability[currentHour] * dayModifier, 1.0);
+    const currentProbPct = Math.round(currentProb * 100);
+
+    let nowPrediction;
+    if (isCurrentlyOutside) {
+        nowPrediction = {
+            icon: '🌳',
+            label: 'Marie is outside right now',
+            detail: `Based on her patterns, she typically stays out ~${avgOutingDurationNow} min when leaving around this hour.`,
+            confidence: `${currentProbPct}% of tracked days she's been outside at ${currentHour}:00`
+        };
+    } else {
+        if (currentProbPct >= 50) {
+            nowPrediction = {
+                icon: '🚪',
+                label: 'Marie is likely to head out soon!',
+                detail: `At this hour she's historically outside ${currentProbPct}% of the time — an outing may be imminent.`,
+                confidence: `Avg outing length at this hour: ~${avgOutingDurationNow} min`
+            };
+        } else if (currentProbPct >= 20) {
+            nowPrediction = {
+                icon: '🏠',
+                label: 'Marie is chilling inside',
+                detail: `There's a moderate ${currentProbPct}% chance she heads out this hour.`,
+                confidence: `She's inside — typical for this time of day`
+            };
+        } else {
+            nowPrediction = {
+                icon: '😴',
+                label: 'Marie is snoozing',
+                detail: `Very low activity at this hour — only ${currentProbPct}% chance of going out.`,
+                confidence: `This is usually quiet time for her`
+            };
+        }
+    }
+
+    // ---- 7. Build timeline (next 6 hours) ----
+    const timelineSlots = [];
+    for (let offset = 1; offset <= 6; offset++) {
+        const h = (currentHour + offset) % 24;
+        const prob = Math.min(hourlyProbability[h] * dayModifier, 1.0);
+        const probPct = Math.round(prob * 100);
+        const avgDur = hourlyAvgDuration[h];
+
+        const timeLabel = formatHour(h);
+        let icon, label;
+
+        if (probPct >= 60) {
+            icon = '🌳';
+            label = 'Likely out';
+        } else if (probPct >= 35) {
+            icon = '🐾';
+            label = 'Maybe out';
+        } else if (probPct >= 10) {
+            icon = '🏠';
+            label = 'Probably in';
+        } else {
+            icon = '😴';
+            label = 'Asleep';
+        }
+
+        timelineSlots.push({
+            time: timeLabel,
+            icon,
+            label,
+            probPct,
+            avgDur,
+            highlight: probPct >= 50
+        });
+    }
+
+    // ---- 8. Fun fact / prediction nugget ----
+    // Find the peak upcoming hour
+    let peakHour = -1, peakProb = 0;
+    for (let offset = 1; offset <= 12; offset++) {
+        const h = (currentHour + offset) % 24;
+        const p = hourlyProbability[h] * dayModifier;
+        if (p > peakProb) {
+            peakProb = p;
+            peakHour = h;
+        }
+    }
+
+    // Total expected outings today
+    const expectedOutings = isWeekend
+        ? (weAvgOutings > 0 ? weAvgOutings.toFixed(1) : '?')
+        : (wdAvgOutings > 0 ? wdAvgOutings.toFixed(1) : '?');
+
+    const funFact = peakHour >= 0
+        ? `<strong>Next activity peak:</strong> around ${formatHour(peakHour)} (${Math.round(peakProb * 100)}% chance).
+           On a typical ${isWeekend ? 'weekend' : 'weekday'}, Marie averages <strong>${expectedOutings} outings</strong>.`
+        : `Marie averages <strong>${expectedOutings} outings</strong> on ${isWeekend ? 'weekends' : 'weekdays'}.`;
+
+    // ---- 9. Render ----
+    panel.innerHTML = `
+        <div class="prediction-now">
+            <div class="prediction-now-icon">${nowPrediction.icon}</div>
+            <div class="prediction-now-text">
+                <div class="prediction-now-label">Right now</div>
+                <div class="prediction-now-value">${nowPrediction.label}</div>
+                <div class="prediction-confidence">${nowPrediction.detail}</div>
+                <div class="prediction-confidence" style="margin-top: 1px; opacity: 0.7;">${nowPrediction.confidence}</div>
+            </div>
+        </div>
+        <div class="prediction-timeline">
+            ${timelineSlots.map(slot => `
+                <div class="prediction-slot ${slot.highlight ? 'highlight' : ''}">
+                    <div class="prediction-slot-time">${slot.time}</div>
+                    <div class="prediction-slot-icon">${slot.icon}</div>
+                    <div class="prediction-slot-label">${slot.label}</div>
+                    <div class="prediction-slot-prob">${slot.probPct}%${slot.avgDur > 0 ? ' · ~' + slot.avgDur + 'm' : ''}</div>
+                </div>
+            `).join('')}
+        </div>
+        <div class="prediction-fun-fact">🎯 ${funFact}</div>
+    `;
+}
+
+/** Format hour number to readable string (e.g. 14 → "2 PM") */
+function formatHour(h) {
+    if (h === 0) return '12 AM';
+    if (h < 12) return h + ' AM';
+    if (h === 12) return '12 PM';
+    return (h - 12) + ' PM';
 }

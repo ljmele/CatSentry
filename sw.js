@@ -1,5 +1,5 @@
 // Marie Sentry Service Worker 
-const CACHE_NAME = 'catsentry-v2.0';
+const CACHE_NAME = 'catsentry-v2.1';
 
 // Files to cache for offline use
 const PRECACHE_URLS = [

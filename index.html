@@ -16,8 +16,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="js/analytics.js?v=2.0"></script>
-    <script src="js/storage.js?v=2.0"></script>
+    <script src="js/analytics.js?v=2.1"></script>
+    <script src="js/storage.js?v=2.1"></script>
     <style>
         /* ========== RESET & BASE ========== */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -510,6 +510,158 @@
             .btn-group button { padding: 8px 12px; font-size: 12px; }
         }
 
+        /* ========== PREDICTION PANEL ========== */
+        .prediction-panel {
+            background: linear-gradient(135deg, rgba(0, 230, 118, 0.06), rgba(59, 130, 246, 0.06));
+            border: 1px solid rgba(0, 230, 118, 0.15);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-bottom: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+        .prediction-panel::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -30%;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, rgba(0, 230, 118, 0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .prediction-panel h3 {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(0, 230, 118, 0.12);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .prediction-panel h3 .pulse-icon {
+            display: inline-block;
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px rgba(0,230,118,0.3)); }
+            50% { opacity: 0.7; filter: drop-shadow(0 0 6px rgba(0,230,118,0.6)); }
+        }
+        .prediction-now {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: rgba(0, 230, 118, 0.08);
+            border: 1px solid rgba(0, 230, 118, 0.12);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 14px;
+        }
+        .prediction-now-icon {
+            font-size: 32px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .prediction-now-text {
+            flex: 1;
+        }
+        .prediction-now-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+        .prediction-now-value {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+        .prediction-confidence {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .prediction-timeline {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+        .prediction-slot {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            text-align: center;
+            transition: border-color var(--transition), box-shadow var(--transition);
+        }
+        .prediction-slot:hover {
+            border-color: rgba(0, 230, 118, 0.2);
+            box-shadow: 0 0 10px rgba(0, 230, 118, 0.08);
+        }
+        .prediction-slot-time {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+        .prediction-slot-icon {
+            font-size: 22px;
+            margin-bottom: 4px;
+        }
+        .prediction-slot-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .prediction-slot-prob {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .prediction-slot.highlight {
+            border-color: rgba(0, 230, 118, 0.25);
+            background: rgba(0, 230, 118, 0.04);
+        }
+        .prediction-fun-fact {
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: rgba(59, 130, 246, 0.06);
+            border: 1px solid rgba(59, 130, 246, 0.1);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .prediction-fun-fact strong {
+            color: var(--blue);
+        }
+
+        /* ========== FOOTER ========== */
+        .app-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0 8px;
+            margin-top: 8px;
+            border-top: 1px solid var(--border);
+            font-size: 10px;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+        .app-footer .footer-logo {
+            font-weight: 700;
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            color: var(--text-secondary);
+        }
+
         /* ========== SCROLLBAR ========== */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -571,7 +723,7 @@
         <button class="btn-primary" id="connectBtn" onclick="connectToCat()">📡 Connect</button>
         <button class="btn-accent" onclick="downloadCSV()">⬇ CSV</button>
         <button class="btn-secondary" onclick="openSettings()">☁️ Sync</button>
-        <button class="btn-ghost" id="advancedBtn" onclick="openAdvancedMode()">🔧 Advanced</button>
+        <button class="btn-ghost" id="advancedBtn" onclick="openAdvancedMode()">🔧 Adv.</button>
     </div>
 
     <!-- Console -->
@@ -587,6 +739,14 @@
             <ul class="recent-events" id="recentEventsList">
                 <li class="no-events">No events recorded yet</li>
             </ul>
+        </div>
+    </div>
+
+    <!-- Prediction Panel -->
+    <div class="prediction-panel" id="predictionPanel">
+        <h3><span class="pulse-icon">🔮</span> Marie's Next Move</h3>
+        <div id="predictionContent">
+            <p style="color: var(--text-muted); font-style: italic;">Analyzing patterns...</p>
         </div>
     </div>
 
@@ -636,6 +796,12 @@
                 <p style="color: var(--text-muted); font-style: italic;">Collecting data...</p>
             </div>
         </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="app-footer">
+        <span>Marie Sentry v2.1</span>
+        <span class="footer-logo">LJM</span>
     </div>
 
 </div>
