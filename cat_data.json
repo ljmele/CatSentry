@@ -2374,5 +2374,97 @@
   {
     "timestamp": 1772089985000,
     "type": 1
+  },
+  {
+    "timestamp": 1772103117000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772103312000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772103574000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772103750000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772103947000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772104502000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772123404000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772124115000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772124189000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772124642000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772125500000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772126624000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772126741000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772127582000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772130139000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772130228000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772133994000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772134628000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772135896000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772136265000,
+    "type": 1
+  },
+  {
+    "timestamp": 1772136789000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772137623000,
+    "type": 2
+  },
+  {
+    "timestamp": 1772138344000,
+    "type": 1
   }
 ]
