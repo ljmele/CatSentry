@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marie Sentry Tests</title>
+  <style>
+    body {
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      background: #0d0d0d;
+      color: #f2f2f2;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 16px 0; font-size: 1.4rem; }
+    #summary { margin-bottom: 16px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li {
+      margin: 6px 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: #171717;
+    }
+    .ok { border-color: rgba(0,230,118,0.6); }
+    .fail { border-color: rgba(239,68,68,0.8); }
+    code { color: #9be8bf; }
+  </style>
+</head>
+<body>
+  <h1>Marie Sentry v3.0 Test Suite</h1>
+  <div id="summary">Running tests...</div>
+  <ul id="results"></ul>
+
+  <script>
+    window.__TEST_MODE__ = true;
+    window.Chart = window.Chart || function ChartStub() {
+      return { destroy: function () {} };
+    };
+    window.updateLog = window.updateLog || function () {};
+    window.showToast = window.showToast || function () {};
+  </script>
+  <script src="../js/weather.js?v=3.0"></script>
+  <script src="../js/analytics.js?v=3.0"></script>
+  <script src="../js/app.js?v=3.0"></script>
+  <script src="../js/predictions.js?v=3.0"></script>
+  <script src="../js/ui.js?v=3.0"></script>
+
+  <script>
+    (function runTests() {
+      const resultsEl = document.getElementById('results');
+      const summaryEl = document.getElementById('summary');
+      const results = [];
+
+      function assert(name, condition, details) {
+        const passed = !!condition;
+        results.push({ name, passed, details: details || '' });
+      }
+
+      function eq(name, actual, expected) {
+        const passed = actual === expected;
+        const details = passed ? '' : 'expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual);
+        assert(name, passed, details);
+      }
+
+      const sampleEvents = [
+        { timestamp: Date.parse('2026-03-10T08:00:00Z'), type: 2 },
+        { timestamp: Date.parse('2026-03-10T08:30:00Z'), type: 1 },
+        { timestamp: Date.parse('2026-03-10T12:00:00Z'), type: 2 },
+        { timestamp: Date.parse('2026-03-10T13:00:00Z'), type: 1 }
+      ];
+      const processed = processDataWithStateMachine(sampleEvents);
+      const dayKey = new Date(sampleEvents[0].timestamp).toLocaleDateString();
+      eq('processDataWithStateMachine counts outings', processed.dailyCounts[dayKey], 2);
+      eq('processDataWithStateMachine totals 90 minutes', Math.round(processed.dailyDurations[dayKey]), 90);
+
+      const csv = [
+        'Timestamp,Date,Type,Effective,Reason',
+        '1700000000000,"11/14/2023, 10:00:00 PM",ENTRY,Yes,"ok"',
+        '1700000600000,"11/14/2023, 10:10:00 PM",EXIT,Yes,"ok"'
+      ].join('\n');
+      const parsed = App.ui.parseCSV(csv);
+      eq('parseCSV parses 2 events', parsed.length, 2);
+      eq('parseCSV first type ENTRY', parsed[0].type, 1);
+      eq('parseCSV second type EXIT', parsed[1].type, 2);
+
+      eq('isValidEvent accepts valid entry', App.isValidEvent(Date.now() - 60000, 1), true);
+      eq('isValidEvent rejects invalid type', App.isValidEvent(Date.now() - 60000, 3), false);
+
+      eq('formatHour 0', App.predictions.formatHour(0), '12 AM');
+      eq('formatHour 13', App.predictions.formatHour(13), '1 PM');
+
+      const p1 = App.predictions.calculateAdjustedProbability(0.5, 0.8);
+      const p2 = App.predictions.calculateAdjustedProbability(0.8, 1.5);
+      eq('prediction probability lower bound', p1, 0.4);
+      eq('prediction probability upper clamp', p2, 1);
+
+      let passCount = 0;
+      let failCount = 0;
+      results.forEach(r => {
+        const li = document.createElement('li');
+        li.className = r.passed ? 'ok' : 'fail';
+        li.innerHTML = (r.passed ? 'PASS' : 'FAIL') + ' - <code>' + r.name + '</code>' + (r.details ? ' <span>(' + r.details + ')</span>' : '');
+        resultsEl.appendChild(li);
+        if (r.passed) passCount++; else failCount++;
+      });
+
+      summaryEl.textContent = 'Completed ' + results.length + ' checks: ' + passCount + ' passed, ' + failCount + ' failed.';
+    })();
+  </script>
+</body>
+</html>

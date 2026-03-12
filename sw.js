@@ -1,78 +1,115 @@
-// Marie Sentry Service Worker 
-const CACHE_NAME = 'catsentry-v2.1';
+// Marie Sentry Service Worker
+const APP_SHELL_CACHE = "catsentry-shell-v3.1";
+const DATA_CACHE = "catsentry-data-v3.1";
+const OFFLINE_URL = "./offline.html";
 
-// Files to cache for offline use
-const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './js/analytics.js',
-  './js/storage.js',
-  './manifest.json',
-  'images/marie/avatar-192.jpg',
-  'images/marie/avatar-512.jpg',
-  'images/marie/hero.png',
-  'https://cdn.jsdelivr.net/npm/chart.js'
+const APP_SHELL_URLS = [
+  "./",
+  "./index.html",
+  "./offline.html",
+  "./css/main.css",
+  "./js/weather.js",
+  "./js/analytics.js",
+  "./js/storage.js",
+  "./js/app.js",
+  "./js/ble.js",
+  "./js/ui.js",
+  "./js/predictions.js",
+  "./js/insights.js",
+  "./manifest.json",
+  "./tests/test.html",
+  "images/marie/avatar-192.jpg",
+  "images/marie/avatar-512.jpg",
+  "images/marie/hero.png",
+  "https://cdn.jsdelivr.net/npm/chart.js"
 ];
 
-// Install: pre-cache core assets
-self.addEventListener('install', event => {
+function isApiRequest(url) {
+  return url.hostname.includes("open-meteo.com") || url.hostname.includes("api.github.com");
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(request);
+  if (response.ok && request.method === "GET") {
+    const cache = await caches.open(APP_SHELL_CACHE);
+    cache.put(request, response.clone());
+  }
+  return response;
+}
+
+async function networkFirstForApi(request) {
+  const cache = await caches.open(DATA_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) {
+      return cached;
+    }
+    return new Response("{}", {
+      headers: { "Content-Type": "application/json" },
+      status: 503
+    });
+  }
+}
+
+self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(PRECACHE_URLS))
+    caches.open(APP_SHELL_CACHE)
+      .then(cache => cache.addAll(APP_SHELL_URLS))
       .then(() => self.skipWaiting())
   );
 });
 
-// Activate: clean up old caches
-self.addEventListener('activate', event => {
+self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(key => key !== CACHE_NAME)
+          .filter(key => key !== APP_SHELL_CACHE && key !== DATA_CACHE)
           .map(key => caches.delete(key))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-// Fetch: network-first for API calls, cache-first for static assets
-self.addEventListener('fetch', event => {
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") {
+    return;
+  }
+
   const url = new URL(event.request.url);
 
-  // Weather API calls: network-only (don't cache dynamic data)
-  if (url.hostname.includes('open-meteo.com') || url.hostname.includes('api.github.com')) {
+  if (isApiRequest(url)) {
+    event.respondWith(networkFirstForApi(event.request));
+    return;
+  }
+
+  if (event.request.mode === "navigate") {
     event.respondWith(
-      fetch(event.request).catch(() => new Response('{}', { 
-        headers: { 'Content-Type': 'application/json' } 
-      }))
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(APP_SHELL_CACHE).then(cache => cache.put("./index.html", clone));
+          return response;
+        })
+        .catch(async () => {
+          const cachedPage = await caches.match(event.request);
+          if (cachedPage) return cachedPage;
+          return caches.match(OFFLINE_URL);
+        })
     );
     return;
   }
 
-  // Static assets: cache-first, fallback to network
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) {
-        // Return cache hit, but also update cache in background
-        const fetchPromise = fetch(event.request).then(response => {
-          if (response.ok) {
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, response));
-          }
-          return response.clone();
-        }).catch(() => {});
-        
-        return cached;
-      }
-
-      // Not in cache: fetch from network and cache it
-      return fetch(event.request).then(response => {
-        if (response.ok && event.request.method === 'GET') {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
-        }
-        return response;
-      });
-    })
-  );
+  event.respondWith(cacheFirst(event.request));
 });

@@ -1,8 +1,11 @@
 {
+  "id": "./",
   "name": "Marie Sentry Dashboard",
   "short_name": "MarieSentry",
+  "version": "3.1.0",
   "description": "BLE-based cat tracking dashboard with weather insights",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
@@ -11,14 +14,28 @@
     {
       "src": "images/marie/avatar-192.jpg",
       "sizes": "192x192",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "any maskable"
     },
     {
       "src": "images/marie/avatar-512.jpg",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Connect BLE",
+      "short_name": "Connect",
+      "description": "Open dashboard and connect to CatSentry",
+      "url": "./index.html#connect"
+    },
+    {
+      "name": "Run Diagnostics",
+      "short_name": "Diagnostics",
+      "description": "Open test suite for core logic",
+      "url": "./tests/test.html"
     }
   ]
 }

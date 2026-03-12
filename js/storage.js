@@ -19,6 +19,29 @@ class GitHubStorage {
         return this.config.owner && this.config.repo && this.config.token;
     }
 
+    async sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async withRetry(operation, options = {}) {
+        const maxRetries = Number.isInteger(options.maxRetries) ? options.maxRetries : 2;
+        const baseDelayMs = Number.isFinite(options.baseDelayMs) ? options.baseDelayMs : 500;
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await operation(attempt);
+            } catch (error) {
+                lastError = error;
+                if (attempt === maxRetries) break;
+                const waitMs = baseDelayMs * Math.pow(2, attempt);
+                await this.sleep(waitMs);
+            }
+        }
+
+        throw lastError;
+    }
+
     saveConfig(owner, repo, token) {
         this.config = { ...this.config, owner, repo, token };
         localStorage.setItem('catSentry_gh_config', JSON.stringify(this.config));
@@ -35,7 +58,10 @@ class GitHubStorage {
             updateLog("Syncing to GitHub...");
 
             // 1. Get the current file SHA (needed for update)
-            const currentFile = await this.getFileInfo();
+            const currentFile = await this.withRetry(() => this.getFileInfo(), {
+                maxRetries: 2,
+                baseDelayMs: 600
+            });
             const sha = currentFile ? currentFile.sha : null;
 
             // 2. Prepare Payload
@@ -57,14 +83,25 @@ class GitHubStorage {
 
             // 3. Send PUT request
             const url = `${GH_API_BASE}/repos/${this.config.owner}/${this.config.repo}/contents/${this.config.path}`;
-            const response = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${this.config.token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/vnd.github.v3+json'
-                },
-                body: JSON.stringify(body)
+            const response = await this.withRetry(async () => {
+                const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${this.config.token}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/vnd.github.v3+json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (res.status >= 500 || res.status === 429) {
+                    throw new Error(`GitHub temporary error: ${res.status}`);
+                }
+
+                return res;
+            }, {
+                maxRetries: 2,
+                baseDelayMs: 600
             });
 
             if (!response.ok) throw new Error(`GitHub API Error: ${response.status}`);
@@ -73,7 +110,6 @@ class GitHubStorage {
             return { success: true };
 
         } catch (error) {
-            console.error(error);
             updateLog("Cloud sync failed: " + error.message);
             return { success: false, error: error.message };
         }
@@ -87,7 +123,10 @@ class GitHubStorage {
 
         try {
             updateLog("Checking GitHub for data...");
-            const fileData = await this.getFileInfo();
+            const fileData = await this.withRetry(() => this.getFileInfo(), {
+                maxRetries: 2,
+                baseDelayMs: 600
+            });
             
             if (!fileData) {
                 updateLog("No cloud data found. Starting fresh.");
@@ -103,7 +142,6 @@ class GitHubStorage {
             return data;
 
         } catch (error) {
-            console.error(error);
             updateLog("Cloud load failed: " + error.message);
             return null;
         }
