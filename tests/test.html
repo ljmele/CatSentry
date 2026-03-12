@@ -95,6 +95,43 @@
       eq('prediction probability lower bound', p1, 0.4);
       eq('prediction probability upper clamp', p2, 1);
 
+      const preferredNow = new Date('2026-03-12T12:00:00');
+      const keyToday = new Date('2026-03-12T12:00:00').toLocaleDateString();
+      const keyYesterday = new Date('2026-03-11T12:00:00').toLocaleDateString();
+      const keyOlder = new Date('2026-02-20T12:00:00').toLocaleDateString();
+
+      const preferredData = {
+        [keyToday]: (() => {
+          const arr = new Array(24).fill(0);
+          arr[8] = 20;
+          return arr;
+        })(),
+        [keyYesterday]: (() => {
+          const arr = new Array(24).fill(0);
+          arr[8] = 15;
+          return arr;
+        })(),
+        [keyOlder]: (() => {
+          const arr = new Array(24).fill(0);
+          arr[8] = 30;
+          return arr;
+        })()
+      };
+
+      const aggAll = aggregatePreferredHoursByPeriod(preferredData, 'all', preferredNow);
+      const aggWeek = aggregatePreferredHoursByPeriod(preferredData, 'week', preferredNow);
+      const aggToday = aggregatePreferredHoursByPeriod(preferredData, 'today', preferredNow);
+
+      eq('preferred all-time sums all buckets', aggAll.values[8], 65);
+      eq('preferred week excludes older month data', aggWeek.values[8], 35);
+      eq('preferred today includes only current day', aggToday.values[8], 20);
+
+      App.analytics.currentPeriod = 'day';
+      App.analytics.preferredHoursPeriod = 'all';
+      setChartPeriod('week');
+      eq('rolling period updates independently', App.analytics.currentPeriod, 'week');
+      eq('preferred period remains independent', App.analytics.preferredHoursPeriod, 'all');
+
       let passCount = 0;
       let failCount = 0;
       results.forEach(r => {

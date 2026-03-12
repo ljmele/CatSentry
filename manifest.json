@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Marie Sentry Dashboard",
   "short_name": "MarieSentry",
-  "version": "3.1.0",
+  "version": "3.0.0",
   "description": "BLE-based cat tracking dashboard with weather insights",
   "start_url": "./index.html",
   "scope": "./",

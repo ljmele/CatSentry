@@ -1,6 +1,6 @@
 // Marie Sentry Service Worker
-const APP_SHELL_CACHE = "catsentry-shell-v3.1";
-const DATA_CACHE = "catsentry-data-v3.1";
+const APP_SHELL_CACHE = "catsentry-shell-v3.0-dev.1";
+const DATA_CACHE = "catsentry-data-v3.0-dev.1";
 const OFFLINE_URL = "./offline.html";
 
 const APP_SHELL_URLS = [

@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/main.css?v=3.0">
+    <link rel="stylesheet" href="css/main.css?v=3.0-dev.1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -44,28 +44,57 @@
     <div class="hero">
         <img src="images/marie/hero.png" alt="Marie the cat">
         <div class="hero-overlay">
-            <div class="hero-status">Welcome back! 🐾</div>
+            <div class="hero-status" id="heroStatusText">Welcome back! 🐾</div>
         </div>
     </div>
 
-    <!-- Quick Stats (2x2) -->
+    <!-- Current Status + Last Meaningful Event -->
+    <div class="card status-card" style="margin-bottom: 16px;">
+        <h3>🧭 Current Status <span class="subtitle">Today</span></h3>
+        <p class="status-summary" id="currentStatusSummary">Marie is currently unknown.</p>
+        <p class="status-detail" id="lastMeaningfulEvent">No meaningful events recorded yet.</p>
+    </div>
+
+    <!-- Today Activity Tracker (Phase A IA placement; full intensity ribbon in Phase B) -->
+    <div class="card today-tracker-panel" style="margin-bottom: 16px;">
+        <h3>🟩 Today Activity Tracker <span class="subtitle">Today</span></h3>
+        <p class="status-detail" id="todayTrackerSummary">No completed outings today yet.</p>
+        <div class="today-tracker-ribbon" aria-label="Today hourly activity ribbon">
+            <div class="today-tracker-grid" id="todayTrackerGrid" role="group" aria-label="Minutes outside by hour"></div>
+        </div>
+        <div class="today-tracker-tooltip" id="todayTrackerTooltip" role="status" aria-live="polite">Tap or hover an hour to inspect details.</div>
+        <div class="today-tracker-summary-chips" id="todayTrackerChips">
+            <span class="today-tracker-summary-chip">Outings: <strong id="todayTrackerChipOutings">0</strong></span>
+            <span class="today-tracker-summary-chip">Minutes: <strong id="todayTrackerChipMinutes">0m</strong></span>
+            <span class="today-tracker-summary-chip">Longest: <strong id="todayTrackerChipLongest">0m</strong></span>
+            <span class="today-tracker-summary-chip" id="todayTrackerChipDeltaWrap" hidden>vs Yesterday: <strong id="todayTrackerChipDelta">N/A</strong></span>
+        </div>
+    </div>
+
+    <!-- Quick Stats (Today-first, compact) -->
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-value" id="statOutings">0</div>
-            <div class="stat-label">Outings</div>
+            <div class="stat-label">Today - Outings</div>
         </div>
         <div class="stat-card">
             <div class="stat-value" id="statTimeOutside">0m</div>
-            <div class="stat-label">Time Outside</div>
+            <div class="stat-label">Today - Time Outside</div>
         </div>
         <div class="stat-card">
             <div class="stat-value" id="statCatStatus">❓</div>
-            <div class="stat-label">Marie's Status</div>
+            <div class="stat-label">Today - Marie's Status</div>
         </div>
         <div class="stat-card">
             <div class="stat-value" id="statRawEvents">0</div>
-            <div class="stat-label">Raw Events</div>
+            <div class="stat-label">Today - Raw Events</div>
         </div>
+    </div>
+
+    <div class="lifetime-strip" aria-label="All-time context" style="margin-bottom: 16px;">
+        <span class="lifetime-chip">All-time outings: <strong id="statOutingsAllTime">0</strong></span>
+        <span class="lifetime-chip">All-time outside: <strong id="statTimeOutsideAllTime">0m</strong></span>
+        <span class="lifetime-chip">All-time raw events: <strong id="statRawEventsAllTime">0</strong></span>
     </div>
 
     <!-- Controls -->
@@ -76,15 +105,9 @@
         <button class="btn-ghost" id="advancedBtn" onclick="openAdvancedMode()">🔧 Adv.</button>
     </div>
 
-    <!-- Console -->
-    <div class="card" style="margin-bottom: 16px;">
-        <h3>📟 Console</h3>
-        <div id="log">Waiting for connection...</div>
-    </div>
-
     <!-- Recent Events -->
     <div class="card" style="margin-bottom: 16px;">
-        <h3>📋 Recent Activity <span class="subtitle">(faded = ignored by state machine)</span></h3>
+        <h3>📋 Recent Activity <span class="subtitle">Rolling (latest 50 events; faded = ignored)</span></h3>
         <div class="recent-events-container">
             <ul class="recent-events" id="recentEventsList">
                 <li class="no-events">No events recorded yet</li>
@@ -92,9 +115,15 @@
         </div>
     </div>
 
+    <!-- Console -->
+    <div class="card" style="margin-bottom: 16px;">
+        <h3>📟 Console <span class="subtitle">Rolling diagnostics</span></h3>
+        <div id="log">Waiting for connection...</div>
+    </div>
+
     <!-- Prediction Panel -->
     <div class="prediction-panel" id="predictionPanel">
-        <h3><span class="pulse-icon">🔮</span> Marie's Next Move</h3>
+        <h3><span class="pulse-icon">🔮</span> Marie's Next Move <span class="subtitle">Rolling forecast</span></h3>
         <div id="predictionContent">
             <p style="color: var(--text-muted); font-style: italic;">Analyzing patterns...</p>
         </div>
@@ -104,7 +133,7 @@
     <div class="grid-row">
         <!-- Frequency Chart -->
         <div class="card full-width" style="height: 300px;">
-            <h3>📊 Outing Frequency</h3>
+            <h3>📊 Outing Frequency <span class="subtitle">Rolling</span></h3>
             <div class="controls">
                 <button class="period-btn active" id="btn-day" onclick="setChartPeriod('day')">Day</button>
                 <button class="period-btn" id="btn-week" onclick="setChartPeriod('week')">Week</button>
@@ -117,7 +146,7 @@
 
         <!-- Duration Chart -->
         <div class="card full-width" style="height: 300px;">
-            <h3>⏱️ Time Outside</h3>
+            <h3>⏱️ Time Outside <span class="subtitle">Rolling</span></h3>
             <div style="height: 230px; position: relative;">
                 <canvas id="durationChart"></canvas>
             </div>
@@ -125,15 +154,22 @@
 
         <!-- Preferred Hours (full-width, larger) -->
         <div class="card full-width" style="height: 380px;">
-            <h3>🕐 Preferred Hours</h3>
-            <div style="height: 320px; position: relative;">
-                <canvas id="hourlyChart"></canvas>
+            <h3>🕐 Preferred Hours <span class="subtitle" id="preferredHoursSubtitle">All-time</span></h3>
+            <div class="controls controls-inline" role="group" aria-label="Preferred Hours timeframe">
+                <button class="period-btn preferred-period-btn active" id="btn-preferred-all" onclick="setPreferredHoursPeriod('all')">All-time</button>
+                <button class="period-btn preferred-period-btn" id="btn-preferred-month" onclick="setPreferredHoursPeriod('month')">Month</button>
+                <button class="period-btn preferred-period-btn" id="btn-preferred-week" onclick="setPreferredHoursPeriod('week')">Week</button>
+                <button class="period-btn preferred-period-btn" id="btn-preferred-today" onclick="setPreferredHoursPeriod('today')">Today</button>
+            </div>
+            <div style="height: 320px; position: relative;" id="preferredHoursChartWrap" class="preferred-hours-chart-wrap">
+                <canvas id="hourlyChart" aria-describedby="preferredHoursState"></canvas>
+                <div id="preferredHoursState" class="chart-state" hidden></div>
             </div>
         </div>
 
         <!-- Weather Correlation -->
         <div class="card full-width" style="height: 320px;">
-            <h3>🌤️ Weather vs Time Outside</h3>
+            <h3>🌤️ Weather vs Time Outside <span class="subtitle">Rolling</span></h3>
             <div style="height: 250px; position: relative;">
                 <canvas id="weatherCorrelationChart"></canvas>
             </div>
@@ -220,14 +256,14 @@
     </div>
 </div>
 
-<script src="js/weather.js?v=3.0"></script>
-<script src="js/analytics.js?v=3.0"></script>
-<script src="js/predictions.js?v=3.0"></script>
-<script src="js/insights.js?v=3.0"></script>
-<script src="js/storage.js?v=3.0"></script>
-<script src="js/app.js?v=3.0"></script>
-<script src="js/ble.js?v=3.0"></script>
-<script src="js/ui.js?v=3.0"></script>
+<script src="js/weather.js?v=3.0-dev.1"></script>
+<script src="js/analytics.js?v=3.0-dev.1"></script>
+<script src="js/predictions.js?v=3.0-dev.1"></script>
+<script src="js/insights.js?v=3.0-dev.1"></script>
+<script src="js/storage.js?v=3.0-dev.1"></script>
+<script src="js/app.js?v=3.0-dev.1"></script>
+<script src="js/ble.js?v=3.0-dev.1"></script>
+<script src="js/ui.js?v=3.0-dev.1"></script>
 
 </body>
 </html>

@@ -7,6 +7,7 @@ const MAX_OUTING_DURATION_MS = 5 * 60 * 60 * 1000;
 const MIN_OUTING_DURATION_MS = 30 * 1000;
 
 App.analytics.currentPeriod = "day";
+App.analytics.preferredHoursPeriod = "all";
 App.analytics.charts = {
     visits: null,
     duration: null,
@@ -22,7 +23,7 @@ function updateAnalytics(history, dataModel) {
 
     if (!model) return;
 
-    renderHourlyChart(model.hourlyDuration || new Array(24).fill(0));
+    refreshPreferredHoursChart(model);
     renderWeatherCorrelationChart(model.dailyDurations || {}, model);
     renderInsightsPanel(model.dailyCounts || {}, model.dailyDurations || {}, model.hourlyDuration || [], model.stats || {}, model);
 
@@ -36,12 +37,164 @@ function updateAnalytics(history, dataModel) {
 function setChartPeriod(period) {
     App.analytics.currentPeriod = period;
     
-    document.querySelectorAll('.period-btn').forEach(btn => {
+    document.querySelectorAll('.period-btn:not(.preferred-period-btn)').forEach(btn => {
         if(btn.id === `btn-${period}`) btn.classList.add('active');
         else btn.classList.remove('active');
     });
 
     refreshTimeCharts(App.dataModel || {});
+}
+
+function getStartOfLocalDay(date) {
+    const day = new Date(date);
+    day.setHours(0, 0, 0, 0);
+    return day;
+}
+
+function getDateRangeStart(period, nowDate) {
+    const endDay = getStartOfLocalDay(nowDate);
+
+    if (period === 'today') {
+        return endDay;
+    }
+
+    if (period === 'week') {
+        const weekStart = new Date(endDay);
+        weekStart.setDate(weekStart.getDate() - 6);
+        return weekStart;
+    }
+
+    if (period === 'month') {
+        const monthStart = new Date(endDay);
+        monthStart.setDate(monthStart.getDate() - 29);
+        return monthStart;
+    }
+
+    return null;
+}
+
+function aggregatePreferredHoursByPeriod(dailyHourlyDurations, period, nowDate = new Date()) {
+    const hourlyTotals = new Array(24).fill(0);
+    const source = dailyHourlyDurations && typeof dailyHourlyDurations === 'object'
+        ? dailyHourlyDurations
+        : {};
+    const endDay = getStartOfLocalDay(nowDate);
+    const rangeStart = getDateRangeStart(period, nowDate);
+
+    let includedDays = 0;
+    let nonZeroHours = 0;
+
+    Object.keys(source).forEach(dateKey => {
+        const day = new Date(dateKey);
+        if (isNaN(day.getTime())) return;
+
+        const dayStart = getStartOfLocalDay(day);
+        if (dayStart > endDay) return;
+        if (rangeStart && dayStart < rangeStart) return;
+
+        const dayHours = source[dateKey];
+        if (!Array.isArray(dayHours) || dayHours.length !== 24) return;
+
+        includedDays++;
+        for (let hour = 0; hour < 24; hour++) {
+            const minutes = Number(dayHours[hour]) || 0;
+            hourlyTotals[hour] += minutes;
+        }
+    });
+
+    const rounded = hourlyTotals.map(v => Math.round(v * 10) / 10);
+    const totalMinutes = rounded.reduce((sum, v) => sum + v, 0);
+    for (let i = 0; i < rounded.length; i++) {
+        if (rounded[i] > 0) nonZeroHours++;
+    }
+
+    return {
+        values: rounded,
+        totalMinutes,
+        includedDays,
+        nonZeroHours
+    };
+}
+
+function getPreferredHoursPeriodLabel(period) {
+    if (period === 'today') return 'Today';
+    if (period === 'week') return 'Week';
+    if (period === 'month') return 'Month';
+    return 'All-time';
+}
+
+function applyPreferredHoursTransition() {
+    const chartWrap = document.getElementById('preferredHoursChartWrap');
+    if (!chartWrap || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return;
+    }
+
+    chartWrap.classList.remove('preferred-hours-fade');
+    window.requestAnimationFrame(() => {
+        chartWrap.classList.add('preferred-hours-fade');
+        window.setTimeout(() => chartWrap.classList.remove('preferred-hours-fade'), 290);
+    });
+}
+
+function updatePreferredHoursState(stateText, tone) {
+    const stateEl = document.getElementById('preferredHoursState');
+    if (!stateEl) return;
+
+    stateEl.classList.remove('is-warning');
+    if (!stateText) {
+        stateEl.hidden = true;
+        stateEl.textContent = '';
+        return;
+    }
+
+    stateEl.hidden = false;
+    stateEl.textContent = stateText;
+    if (tone === 'warning') {
+        stateEl.classList.add('is-warning');
+    }
+}
+
+function refreshPreferredHoursChart(dataModel) {
+    const model = dataModel || App.dataModel || {};
+    const period = App.analytics.preferredHoursPeriod || 'all';
+
+    const aggregated = aggregatePreferredHoursByPeriod(model.dailyHourlyDurations || {}, period);
+    const subtitle = document.getElementById('preferredHoursSubtitle');
+    if (subtitle) {
+        subtitle.textContent = getPreferredHoursPeriodLabel(period);
+    }
+
+    let stateText = '';
+    let stateTone = '';
+
+    if (aggregated.totalMinutes <= 0) {
+        stateText = `No outside-time data for ${getPreferredHoursPeriodLabel(period)} yet.`;
+    } else {
+        const sparseForToday = period === 'today' && aggregated.totalMinutes < 15;
+        const sparseForRange = period !== 'today' && aggregated.includedDays > 0 && aggregated.includedDays < 2;
+        if (sparseForToday || sparseForRange || aggregated.nonZeroHours < 2) {
+            stateText = `Sparse data in ${getPreferredHoursPeriodLabel(period)}; patterns may be noisy.`;
+            stateTone = 'warning';
+        }
+    }
+
+    updatePreferredHoursState(stateText, stateTone);
+    renderHourlyChart(aggregated.values, period);
+}
+
+function setPreferredHoursPeriod(period) {
+    const validPeriods = ['all', 'month', 'week', 'today'];
+    if (!validPeriods.includes(period)) return;
+
+    App.analytics.preferredHoursPeriod = period;
+
+    document.querySelectorAll('.preferred-period-btn').forEach(btn => {
+        if (btn.id === `btn-preferred-${period}`) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+
+    applyPreferredHoursTransition();
+    refreshPreferredHoursChart(App.dataModel || {});
 }
 
 function refreshTimeCharts(dataModel) {
@@ -502,7 +655,7 @@ async function renderDurationChart(dataObj, period) {
     });
 }
 
-function renderHourlyChart(dataArray) {
+function renderHourlyChart(dataArray, period = 'all') {
     const canvas = document.getElementById('hourlyChart');
     if (!canvas) return;
     
@@ -517,8 +670,6 @@ function renderHourlyChart(dataArray) {
 
     const maxVal = Math.max(...rounded);
     
-    if (App.analytics.charts.hourly) App.analytics.charts.hourly.destroy();
-
     const gradient = ctx.createRadialGradient(
         canvas.width / 2, canvas.height / 2, 0,
         canvas.width / 2, canvas.height / 2, canvas.height / 2
@@ -526,7 +677,11 @@ function renderHourlyChart(dataArray) {
     gradient.addColorStop(0, 'rgba(0, 230, 118, 0.05)');
     gradient.addColorStop(1, 'rgba(0, 230, 118, 0.25)');
 
-    App.analytics.charts.hourly = new Chart(ctx, {
+    const hourlyTitle = maxVal > 0
+        ? `Peak (${getPreferredHoursPeriodLabel(period)}): ${labels[rounded.indexOf(maxVal)]} (${maxVal} min)`
+        : `Time Outside by Hour (${getPreferredHoursPeriodLabel(period)})`;
+
+    const chartConfig = {
         type: 'radar',
         data: {
             labels: labels,
@@ -546,27 +701,31 @@ function renderHourlyChart(dataArray) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                duration: 280,
+                easing: 'easeOutCubic'
+            },
             scales: {
                 r: {
                     angleLines: { color: 'rgba(255,255,255,0.06)' },
                     grid: { color: 'rgba(255,255,255,0.06)', circular: true },
-                    pointLabels: { 
-                        color: '#a0a0a0', 
+                    pointLabels: {
+                        color: '#a0a0a0',
                         font: { size: 11, family: "'Inter', system-ui, sans-serif", weight: '500' },
                         padding: 12
                     },
-                    ticks: { 
-                        backdropColor: 'transparent', 
+                    ticks: {
+                        backdropColor: 'transparent',
                         display: false,
                         stepSize: Math.ceil(maxVal / 4) || 5
                     },
                     suggestedMin: 0
                 }
             },
-            plugins: { 
-                title: { 
-                    display: true, 
-                    text: maxVal > 0 ? `Peak: ${labels[rounded.indexOf(maxVal)]} (${maxVal} min)` : 'Time Outside by Hour',
+            plugins: {
+                title: {
+                    display: true,
+                    text: hourlyTitle,
                     color: '#a0a0a0',
                     font: { size: 12, family: "'Inter', system-ui, sans-serif", weight: '500' },
                     padding: { bottom: 8 }
@@ -590,7 +749,22 @@ function renderHourlyChart(dataArray) {
                 }
             }
         }
-    });
+    };
+
+    if (!App.analytics.charts.hourly) {
+        App.analytics.charts.hourly = new Chart(ctx, chartConfig);
+        return;
+    }
+
+    const chart = App.analytics.charts.hourly;
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = rounded;
+    chart.data.datasets[0].backgroundColor = gradient;
+    chart.data.datasets[0].pointRadius = rounded.map(v => v === maxVal && maxVal > 0 ? 5 : 2);
+    chart.data.datasets[0].pointBackgroundColor = rounded.map(v => v === maxVal && maxVal > 0 ? '#00e676' : 'rgba(0, 230, 118, 0.6)');
+    chart.options.scales.r.ticks.stepSize = Math.ceil(maxVal / 4) || 5;
+    chart.options.plugins.title.text = hourlyTitle;
+    chart.update();
 }
 
 async function renderWeatherCorrelationChart(dailyDurations, dataModel) {
@@ -607,5 +781,7 @@ async function renderInsightsPanel(dailyCounts, dailyDurations, hourlyDuration, 
 
 window.updateAnalytics = updateAnalytics;
 window.setChartPeriod = setChartPeriod;
+window.setPreferredHoursPeriod = setPreferredHoursPeriod;
+window.aggregatePreferredHoursByPeriod = aggregatePreferredHoursByPeriod;
 window.processDataWithStateMachine = processDataWithStateMachine;
 window.getCatStatus = getCatStatus;

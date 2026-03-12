@@ -46,6 +46,7 @@ App.state = {
     characteristic: null,
     historyChar: null,
     saveTimer: null,
+    dayRolloverTimer: null,
     historyEventCount: 0,
     advancedModeUnlocked: false,
     eventHistory: []
@@ -217,31 +218,117 @@ App.refreshDataModel = function refreshDataModel() {
 };
 
 App.updateUI = function updateUI() {
-    document.getElementById("statRawEvents").textContent = App.state.eventHistory.length;
+    const todayDate = new Date();
+    const todayKey = todayDate.toLocaleDateString();
+
+    const rawEventsToday = App.state.eventHistory.filter(event => {
+        if (!event || !Number.isFinite(event.timestamp)) return false;
+        return new Date(event.timestamp).toLocaleDateString() === todayKey;
+    }).length;
+
+    document.getElementById("statRawEvents").textContent = rawEventsToday;
 
     const model = App.refreshDataModel();
     const outings = Object.values(model.dailyCounts || {}).reduce((sum, count) => sum + count, 0);
+    const outingsToday = Number(model.dailyCounts && model.dailyCounts[todayKey]) || 0;
     const totalMinutes = model.stats && Number.isFinite(model.stats.totalTimeOutsideMinutes)
         ? model.stats.totalTimeOutsideMinutes
         : Object.values(model.dailyDurations || {}).reduce((sum, mins) => sum + mins, 0);
+    const minutesToday = Number(model.dailyDurations && model.dailyDurations[todayKey]) || 0;
 
-    document.getElementById("statOutings").textContent = outings;
+    document.getElementById("statOutings").textContent = outingsToday;
 
-    if (totalMinutes < 60) {
-        document.getElementById("statTimeOutside").textContent = Math.round(totalMinutes) + "m";
+    if (minutesToday < 60) {
+        document.getElementById("statTimeOutside").textContent = Math.round(minutesToday) + "m";
     } else {
-        const hours = Math.floor(totalMinutes / 60);
-        const mins = Math.round(totalMinutes % 60);
+        const hours = Math.floor(minutesToday / 60);
+        const mins = Math.round(minutesToday % 60);
         document.getElementById("statTimeOutside").textContent = `${hours}h ${mins}m`;
+    }
+
+    const outingsAllTimeEl = document.getElementById("statOutingsAllTime");
+    if (outingsAllTimeEl) outingsAllTimeEl.textContent = outings;
+
+    const rawAllTimeEl = document.getElementById("statRawEventsAllTime");
+    if (rawAllTimeEl) rawAllTimeEl.textContent = App.state.eventHistory.length;
+
+    const totalMinutesAllTimeEl = document.getElementById("statTimeOutsideAllTime");
+    if (totalMinutesAllTimeEl) {
+        if (totalMinutes < 60) {
+            totalMinutesAllTimeEl.textContent = Math.round(totalMinutes) + "m";
+        } else {
+            const totalHours = Math.floor(totalMinutes / 60);
+            const totalMins = Math.round(totalMinutes % 60);
+            totalMinutesAllTimeEl.textContent = `${totalHours}h ${totalMins}m`;
+        }
     }
 
     const catStatus = model.catStatus || { status: "unknown", icon: "❓", text: "Unknown" };
     document.getElementById("statCatStatus").textContent = catStatus.icon + " " + (catStatus.text || "");
 
+    const currentStatusSummary = document.getElementById("currentStatusSummary");
+    if (currentStatusSummary) {
+        currentStatusSummary.textContent = `${catStatus.text || "Unknown"} right now.`;
+    }
+
     const topbarCatIcon = document.getElementById("topbarCatIcon");
     const topbarCatText = document.getElementById("topbarCatText");
     if (topbarCatIcon) topbarCatIcon.textContent = catStatus.icon || "❓";
     if (topbarCatText) topbarCatText.textContent = catStatus.text || "Unknown";
+
+    const heroStatusText = document.getElementById("heroStatusText");
+    if (heroStatusText) {
+        heroStatusText.textContent = `${catStatus.icon || "❓"} ${catStatus.text || "Unknown"}`;
+    }
+
+    const todayTrackerSummary = document.getElementById("todayTrackerSummary");
+    if (todayTrackerSummary) {
+        const todayMinutesRounded = Math.round(minutesToday);
+        todayTrackerSummary.textContent = `${outingsToday} outings today, ${todayMinutesRounded} min outside.`;
+    }
+
+    if (App.ui && typeof App.ui.renderTodayActivityTracker === "function") {
+        App.ui.renderTodayActivityTracker(model, todayKey);
+    }
+
+    const validSortedEvents = [...App.state.eventHistory]
+        .filter(e => e && Number.isFinite(e.timestamp) && e.timestamp >= MIN_VALID_TIMESTAMP)
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+    const processedEvents = Array.isArray(model.processedEvents) ? model.processedEvents : [];
+    const maxIndex = Math.min(validSortedEvents.length, processedEvents.length) - 1;
+    let lastMeaningfulText = "No meaningful events recorded yet.";
+
+    for (let index = maxIndex; index >= 0; index--) {
+        const processedEvent = processedEvents[index];
+        if (!processedEvent || !processedEvent.effective) continue;
+
+        const sourceEvent = validSortedEvents[index];
+        if (!sourceEvent) continue;
+
+        const eventDate = new Date(sourceEvent.timestamp);
+        const eventType = sourceEvent.type === 2 ? "Exit" : "Entry";
+        const timeLabel = eventDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+        let dayLabel = eventDate.toLocaleDateString([], { month: "short", day: "numeric" });
+        if (eventDate.toLocaleDateString() === todayKey) {
+            dayLabel = "Today";
+        } else {
+            const yesterday = new Date(todayDate);
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (eventDate.toLocaleDateString() === yesterday.toLocaleDateString()) {
+                dayLabel = "Yesterday";
+            }
+        }
+
+        lastMeaningfulText = `${eventType} on ${dayLabel} at ${timeLabel}.`;
+        break;
+    }
+
+    const lastMeaningfulEventEl = document.getElementById("lastMeaningfulEvent");
+    if (lastMeaningfulEventEl) {
+        lastMeaningfulEventEl.textContent = lastMeaningfulText;
+    }
 
     if (App.ui && typeof App.ui.updateRecentEvents === "function") {
         App.ui.updateRecentEvents();
@@ -252,10 +339,27 @@ App.updateUI = function updateUI() {
     }
 };
 
+App.scheduleTodayBoundaryRefresh = function scheduleTodayBoundaryRefresh() {
+    if (App.state.dayRolloverTimer) {
+        clearTimeout(App.state.dayRolloverTimer);
+    }
+
+    const now = new Date();
+    const nextLocalMidnight = new Date(now);
+    nextLocalMidnight.setHours(24, 0, 0, 250);
+    const waitMs = Math.max(1000, nextLocalMidnight.getTime() - now.getTime());
+
+    App.state.dayRolloverTimer = window.setTimeout(() => {
+        App.updateUI();
+        App.scheduleTodayBoundaryRefresh();
+    }, waitMs);
+};
+
 App.init = function init() {
     App.state.eventHistory = App.migrateStorageData();
 
     App.updateUI();
+    App.scheduleTodayBoundaryRefresh();
 
     if (ghStorage && ghStorage.isConfigured && App.ui && typeof App.ui.syncWithCloud === "function") {
         App.ui.updateLog("Found GitHub credentials. Checking for updates...");

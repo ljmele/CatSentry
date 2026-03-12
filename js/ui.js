@@ -35,6 +35,158 @@ App.ui.updateLog = function updateLog(text) {
     logDiv.innerHTML = `<div>> ${text}</div>` + logDiv.innerHTML;
 };
 
+App.ui.formatCompactMinutes = function formatCompactMinutes(minutesValue) {
+    const minutes = Math.max(0, Math.round(Number(minutesValue) || 0));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+};
+
+App.ui.getTrackerIntensityLevel = function getTrackerIntensityLevel(minutesValue) {
+    const minutes = Math.max(0, Number(minutesValue) || 0);
+    if (minutes <= 0) return 0;
+    if (minutes < 15) return 1;
+    if (minutes < 30) return 2;
+    if (minutes < 45) return 3;
+    return 4;
+};
+
+App.ui.formatTrackerHourLabel = function formatTrackerHourLabel(hour) {
+    const safeHour = Math.max(0, Math.min(23, Number(hour) || 0));
+    const nextHour = (safeHour + 1) % 24;
+    return `${String(safeHour).padStart(2, "0")}:00-${String(nextHour).padStart(2, "0")}:00`;
+};
+
+App.ui.computeOutingDurationsForDate = function computeOutingDurationsForDate(dateKey) {
+    if (!dateKey) return [];
+
+    const minDurationMs = typeof MIN_OUTING_DURATION_MS === "number" ? MIN_OUTING_DURATION_MS : 30 * 1000;
+    const maxDurationMs = typeof MAX_OUTING_DURATION_MS === "number" ? MAX_OUTING_DURATION_MS : 5 * 60 * 60 * 1000;
+
+    const sortedEvents = [...(App.state.eventHistory || [])]
+        .filter(event => event && Number.isFinite(event.timestamp) && Number.isFinite(event.type) && event.timestamp >= MIN_VALID_TIMESTAMP)
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+    const durations = [];
+    let catIsOutside = false;
+    let currentOuting = null;
+
+    for (const event of sortedEvents) {
+        if (event.type === 2) {
+            const eventDate = new Date(event.timestamp);
+            catIsOutside = true;
+            currentOuting = {
+                exitTimestamp: event.timestamp,
+                exitDateKey: eventDate.toLocaleDateString()
+            };
+            continue;
+        }
+
+        if (event.type === 1 && catIsOutside && currentOuting) {
+            const durationMs = event.timestamp - currentOuting.exitTimestamp;
+
+            if (durationMs >= minDurationMs && durationMs <= maxDurationMs && currentOuting.exitDateKey === dateKey) {
+                durations.push(durationMs / 1000 / 60);
+            }
+
+            catIsOutside = false;
+            currentOuting = null;
+        }
+    }
+
+    return durations;
+};
+
+App.ui.renderTodayActivityTracker = function renderTodayActivityTracker(model, todayKey) {
+    const trackerGrid = document.getElementById("todayTrackerGrid");
+    const trackerTooltip = document.getElementById("todayTrackerTooltip");
+    if (!trackerGrid || !trackerTooltip) return;
+
+    const hourlySource = model && model.dailyHourlyDurations && Array.isArray(model.dailyHourlyDurations[todayKey])
+        ? model.dailyHourlyDurations[todayKey]
+        : [];
+
+    const hourlyMinutes = new Array(24).fill(0).map((_, hour) => {
+        const raw = Number(hourlySource[hour]);
+        return Number.isFinite(raw) && raw > 0 ? raw : 0;
+    });
+
+    if (trackerGrid.childElementCount !== 24) {
+        trackerGrid.innerHTML = "";
+        const fragment = document.createDocumentFragment();
+
+        for (let hour = 0; hour < 24; hour++) {
+            const cell = document.createElement("button");
+            cell.type = "button";
+            cell.className = "tracker-cell intensity-0";
+            cell.dataset.hour = String(hour);
+            fragment.appendChild(cell);
+        }
+
+        trackerGrid.appendChild(fragment);
+    }
+
+    const cells = Array.from(trackerGrid.children);
+    cells.forEach((cell, index) => {
+        const minutes = Math.round(hourlyMinutes[index]);
+        const intensity = App.ui.getTrackerIntensityLevel(minutes);
+        const hourLabel = App.ui.formatTrackerHourLabel(index);
+
+        cell.className = `tracker-cell intensity-${intensity}`;
+        cell.title = `${hourLabel} - ${minutes} min outside`;
+        cell.setAttribute("aria-label", `${hourLabel} - ${minutes} min outside`);
+
+        const showTooltip = () => {
+            cells.forEach(item => item.classList.remove("active"));
+            cell.classList.add("active");
+            trackerTooltip.textContent = `${hourLabel}: ${minutes} min outside`;
+        };
+
+        cell.onmouseenter = showTooltip;
+        cell.onfocus = showTooltip;
+        cell.onclick = showTooltip;
+    });
+
+    const outingsToday = Number(model && model.dailyCounts && model.dailyCounts[todayKey]) || 0;
+    const minutesToday = Math.round(hourlyMinutes.reduce((sum, value) => sum + value, 0));
+    const todayOutingDurations = App.ui.computeOutingDurationsForDate(todayKey);
+    const longestToday = todayOutingDurations.length > 0
+        ? Math.round(Math.max(...todayOutingDurations))
+        : 0;
+
+    const outingsChip = document.getElementById("todayTrackerChipOutings");
+    const minutesChip = document.getElementById("todayTrackerChipMinutes");
+    const longestChip = document.getElementById("todayTrackerChipLongest");
+    if (outingsChip) outingsChip.textContent = String(outingsToday);
+    if (minutesChip) minutesChip.textContent = App.ui.formatCompactMinutes(minutesToday);
+    if (longestChip) longestChip.textContent = App.ui.formatCompactMinutes(longestToday);
+
+    const todayDate = new Date();
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(todayDate.getDate() - 1);
+    const yesterdayKey = yesterday.toLocaleDateString();
+    const yesterdayMinutesRaw = Number(model && model.dailyDurations && model.dailyDurations[yesterdayKey]);
+
+    const deltaWrap = document.getElementById("todayTrackerChipDeltaWrap");
+    const deltaChip = document.getElementById("todayTrackerChipDelta");
+
+    if (deltaWrap && deltaChip) {
+        if (Number.isFinite(yesterdayMinutesRaw)) {
+            const delta = minutesToday - Math.round(yesterdayMinutesRaw);
+            const sign = delta > 0 ? "+" : "";
+            deltaChip.textContent = `${sign}${delta}m`;
+            deltaWrap.hidden = false;
+        } else {
+            deltaWrap.hidden = true;
+            deltaChip.textContent = "N/A";
+        }
+    }
+
+    const currentHour = new Date().getHours();
+    trackerTooltip.textContent = `${App.ui.formatTrackerHourLabel(currentHour)}: ${Math.round(hourlyMinutes[currentHour])} min outside`;
+};
+
 App.ui.updateRecentEvents = function updateRecentEvents() {
     const listEl = document.getElementById("recentEventsList");
     if (!listEl) return;

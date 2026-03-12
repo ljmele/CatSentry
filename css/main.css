@@ -254,6 +254,115 @@ body {
     margin-top: 4px;
 }
 
+.status-card .status-summary {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.status-card .status-detail {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.today-tracker-panel .status-detail {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.today-tracker-ribbon {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+}
+
+.today-tracker-grid {
+    display: grid;
+    grid-template-columns: repeat(24, minmax(14px, 1fr));
+    gap: 4px;
+    min-width: 468px;
+}
+
+.tracker-cell {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    height: 22px;
+    padding: 0;
+    cursor: pointer;
+    transition: background 300ms ease, border-color 300ms ease, transform 300ms ease;
+}
+
+.tracker-cell.intensity-0 { background: rgba(255, 255, 255, 0.04); }
+.tracker-cell.intensity-1 { background: rgba(0, 230, 118, 0.2); border-color: rgba(0, 230, 118, 0.25); }
+.tracker-cell.intensity-2 { background: rgba(0, 230, 118, 0.35); border-color: rgba(0, 230, 118, 0.4); }
+.tracker-cell.intensity-3 { background: rgba(0, 230, 118, 0.55); border-color: rgba(0, 230, 118, 0.62); }
+.tracker-cell.intensity-4 { background: rgba(0, 230, 118, 0.78); border-color: rgba(0, 230, 118, 0.9); }
+
+.tracker-cell:hover,
+.tracker-cell:focus-visible,
+.tracker-cell.active {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+}
+
+.tracker-cell:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.today-tracker-tooltip {
+    min-height: 20px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-bottom: 8px;
+    transition: color 300ms ease;
+}
+
+.today-tracker-summary-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.today-tracker-summary-chip {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    transition: border-color 300ms ease, background 300ms ease;
+}
+
+.today-tracker-summary-chip strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.lifetime-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.lifetime-chip {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.lifetime-chip strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
 /* ========== BUTTONS ========== */
 .btn-group {
     display: flex;
@@ -418,6 +527,40 @@ button {
 .period-btn.active {
     background: var(--accent);
     color: var(--black);
+}
+
+.controls-inline {
+    position: static;
+    margin-bottom: 10px;
+    width: fit-content;
+}
+
+.preferred-hours-chart-wrap {
+    transition: opacity 280ms ease;
+}
+
+.preferred-hours-chart-wrap.preferred-hours-fade {
+    opacity: 0.82;
+}
+
+.chart-state {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: rgba(10, 10, 10, 0.75);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.chart-state.is-warning {
+    border-color: rgba(251, 191, 36, 0.35);
+    color: var(--yellow);
 }
 
 /* ========== RECENT EVENTS ========== */
@@ -636,6 +779,9 @@ button {
     .full-width { grid-column: span 1; }
     .hero { height: 150px; }
     .topbar-title { font-size: 15px; }
+    .status-card .status-summary { font-size: 15px; }
+    .today-tracker-grid { min-width: 408px; grid-template-columns: repeat(24, minmax(12px, 1fr)); }
+    .tracker-cell { height: 20px; }
 }
 
 @media (max-width: 400px) {
@@ -644,6 +790,18 @@ button {
     .stat-value { font-size: 22px; }
     .btn-group { gap: 6px; }
     .btn-group button { padding: 8px 12px; font-size: 12px; }
+    .today-tracker-grid { min-width: 352px; gap: 3px; }
+    .today-tracker-summary-chips { gap: 6px; }
+    .today-tracker-summary-chip { font-size: 10px; padding: 5px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tracker-cell,
+    .today-tracker-tooltip,
+    .today-tracker-summary-chip,
+    .preferred-hours-chart-wrap {
+        transition: none;
+    }
 }
 
 /* ========== PREDICTION PANEL ========== */
