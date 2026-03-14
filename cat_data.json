@@ -3930,5 +3930,53 @@
   {
     "timestamp": 1773445350507,
     "type": 1
+  },
+  {
+    "timestamp": 1773473930000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773474164000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773478542000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773478777000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773488537000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773488699000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773490710000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773517794000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773518876000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773521573000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773524777000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773524828000,
+    "type": 1
   }
 ]
