@@ -4066,5 +4066,85 @@
   {
     "timestamp": 1773607145000,
     "type": 1
+  },
+  {
+    "timestamp": 1773685021000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773685702000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773688832000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773689466000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773689717000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773690019000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773695306000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773695516000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773728550000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773728665000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773728863000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773729275000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773730365000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773730774000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773731083000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773731227000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773746833000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773747802000,
+    "type": 1
+  },
+  {
+    "timestamp": 1773747958000,
+    "type": 2
+  },
+  {
+    "timestamp": 1773748405000,
+    "type": 1
   }
 ]
